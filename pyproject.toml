@@ -1,0 +1,18 @@
+[project]
+name = "cloakllm-mcp"
+version = "0.1.0"
+description = "MCP server for CloakLLM — PII cloaking tools for Claude Desktop"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "cloakllm",
+    "mcp[cli]>=1.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+cloakllm-mcp = "server:mcp.run"
