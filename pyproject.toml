@@ -10,6 +10,9 @@ dependencies = [
     "mcp[cli]>=1.0.0",
 ]
 
+[tool.setuptools]
+py-modules = ["server"]
+
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
