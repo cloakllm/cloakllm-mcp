@@ -129,6 +129,12 @@ python -m mcp dev server.py
 python server.py
 ```
 
+## See Also
+
+- [CloakLLM Hub](https://github.com/cloakllm/CloakLLM) — project overview, architecture, and links
+- [CloakLLM Python SDK](https://github.com/cloakllm/CloakLLM-PY) — Python library with spaCy NER + LiteLLM middleware
+- [CloakLLM JS SDK](https://github.com/cloakllm/CloakLLM-JS) — JavaScript library with OpenAI + Vercel AI middleware
+
 ## License
 
 MIT
