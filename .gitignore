@@ -1,0 +1,39 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*
+
+# Audit logs (runtime output)
+cloakllm_audit/
+
+# Claude Code
+.claude/

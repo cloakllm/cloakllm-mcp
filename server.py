@@ -15,6 +15,7 @@ Run:
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
@@ -23,6 +24,8 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from cloakllm import Shield, ShieldConfig
+
+logger = logging.getLogger("cloakllm.mcp")
 
 # ── Server setup ─────────────────────────────────────────────────
 
@@ -96,8 +99,7 @@ def sanitize(
         map_id = _store_token_map(token_map)
 
         categories = {}
-        for token_str, original in token_map._reverse_map.items():
-            # Extract category from token like [EMAIL_0]
+        for token_str in token_map.reverse:
             cat = token_str.strip("[]").rsplit("_", 1)[0]
             categories[cat] = categories.get(cat, 0) + 1
 
@@ -108,7 +110,8 @@ def sanitize(
             "categories": categories,
         }
     except Exception as e:
-        return {"error": str(e)}
+        logger.exception("sanitize tool failed")
+        return {"error": "Sanitization failed. Check server logs for details."}
 
 
 @mcp.tool()
@@ -138,7 +141,8 @@ def desanitize(
         restored = _shield.desanitize(text, token_map)
         return {"restored": restored}
     except Exception as e:
-        return {"error": str(e)}
+        logger.exception("desanitize tool failed")
+        return {"error": "Desanitization failed. Check server logs for details."}
 
 
 @mcp.tool()
@@ -172,7 +176,8 @@ def analyze(text: str) -> dict:
             ],
         }
     except Exception as e:
-        return {"error": str(e)}
+        logger.exception("analyze tool failed")
+        return {"error": "Analysis failed. Check server logs for details."}
 
 
 # ── Entry point ──────────────────────────────────────────────────
