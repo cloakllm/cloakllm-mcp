@@ -5,6 +5,12 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-03-04
+
+### Added
+
+- `mode` parameter on `sanitize` tool: set to `"redact"` for irreversible PII removal (no token_map_id returned)
+
 ## [0.1.5] - 2026-03-04
 
 ### Changed
@@ -44,6 +50,7 @@ versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Sanitized error messages (no PII leaks in MCP tool responses)
 - Removed broken `[project.scripts]` entry point
 
+[0.1.6]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.6
 [0.1.5]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.5
 [0.1.4]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.4
 [0.1.3]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.3

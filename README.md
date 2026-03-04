@@ -6,7 +6,7 @@ MCP server that wraps CloakLLM's Python SDK as tools for Claude Desktop and othe
 
 | Tool | Description |
 |------|-------------|
-| `sanitize` | Detect & cloak PII, return sanitized text + token map ID |
+| `sanitize` | Detect & cloak PII, return sanitized text + token map ID. Pass `mode: "redact"` for irreversible PII removal (no token_map_id returned). |
 | `desanitize` | Restore original values using a token map ID |
 | `analyze` | Detect PII without cloaking (pure analysis) |
 

@@ -78,6 +78,7 @@ def sanitize(
     provider: str = "",
     metadata: str = "",
     token_map_id: str = "",
+    mode: str = "",
 ) -> dict:
     """
     Detect and cloak PII in text.
@@ -89,30 +90,58 @@ def sanitize(
     For multi-turn conversations, pass the token_map_id from a previous
     sanitize call to reuse the same token map (consistent tokenization).
 
+    Set mode to "redact" for irreversible PII removal — replaces with
+    [EMAIL_REDACTED], [PERSON_REDACTED], etc. No token map is stored.
+
     Args:
         text: The text to sanitize.
         model: Optional LLM model name (for audit logging).
         provider: Optional LLM provider name (for audit logging).
         metadata: Optional metadata string (for audit logging).
         token_map_id: Optional ID from a previous sanitize call to reuse the token map.
+        mode: Optional mode — "tokenize" (default, reversible) or "redact" (irreversible).
 
     Returns:
         dict with sanitized text, token_map_id, entity_count, and categories.
     """
     try:
+        # Use a separate shield instance if mode is "redact"
+        effective_mode = mode if mode in ("tokenize", "redact") else "tokenize"
+        if effective_mode == "redact":
+            shield = Shield(config=ShieldConfig(
+                mode="redact",
+                audit_enabled=_shield.config.audit_enabled,
+                log_dir=_shield.config.log_dir,
+                log_original_values=False,
+            ))
+        else:
+            shield = _shield
+
         existing_map = None
         reuse_id = ""
 
-        if token_map_id:
+        if token_map_id and effective_mode != "redact":
             entry = _TOKEN_MAPS.get(token_map_id)
             if entry is None:
                 return {"error": f"Token map '{token_map_id}' not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
             existing_map = entry["token_map"]
             reuse_id = token_map_id
 
-        sanitized, token_map = _shield.sanitize(
+        sanitized, token_map = shield.sanitize(
             text, model=model or None, token_map=existing_map
         )
+
+        # In redact mode, don't store a token map (nothing to reverse)
+        if effective_mode == "redact":
+            categories = {}
+            for det in token_map.detections:
+                categories[det.category] = categories.get(det.category, 0) + 1
+            return {
+                "sanitized": sanitized,
+                "entity_count": len(token_map.detections),
+                "categories": categories,
+                "mode": "redact",
+            }
 
         if reuse_id:
             # Refresh timestamp to prevent TTL expiry during active conversations
