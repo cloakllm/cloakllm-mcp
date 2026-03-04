@@ -77,6 +77,7 @@ def sanitize(
     model: str = "",
     provider: str = "",
     metadata: str = "",
+    token_map_id: str = "",
 ) -> dict:
     """
     Detect and cloak PII in text.
@@ -85,18 +86,41 @@ def sanitize(
     deterministic tokens like [EMAIL_0], [PERSON_0]. Returns the sanitized
     text and a token_map_id for later desanitization.
 
+    For multi-turn conversations, pass the token_map_id from a previous
+    sanitize call to reuse the same token map (consistent tokenization).
+
     Args:
         text: The text to sanitize.
         model: Optional LLM model name (for audit logging).
         provider: Optional LLM provider name (for audit logging).
         metadata: Optional metadata string (for audit logging).
+        token_map_id: Optional ID from a previous sanitize call to reuse the token map.
 
     Returns:
         dict with sanitized text, token_map_id, entity_count, and categories.
     """
     try:
-        sanitized, token_map = _shield.sanitize(text, model=model or None)
-        map_id = _store_token_map(token_map)
+        existing_map = None
+        reuse_id = ""
+
+        if token_map_id:
+            entry = _TOKEN_MAPS.get(token_map_id)
+            if entry is None:
+                return {"error": f"Token map '{token_map_id}' not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
+            existing_map = entry["token_map"]
+            reuse_id = token_map_id
+
+        sanitized, token_map = _shield.sanitize(
+            text, model=model or None, token_map=existing_map
+        )
+
+        if reuse_id:
+            # Refresh timestamp to prevent TTL expiry during active conversations
+            _TOKEN_MAPS[reuse_id]["token_map"] = token_map
+            _TOKEN_MAPS[reuse_id]["created"] = time.time()
+            map_id = reuse_id
+        else:
+            map_id = _store_token_map(token_map)
 
         categories = {}
         for token_str in token_map.reverse:

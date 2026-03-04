@@ -57,9 +57,12 @@ Or using `uvx`:
 ```json
 {
   "text": "Email john@acme.com about the meeting with Sarah Johnson at 742 Evergreen Terrace",
-  "model": "claude-sonnet-4-20250514"
+  "model": "claude-sonnet-4-20250514",
+  "token_map_id": "optional-id-for-multi-turn"
 }
 ```
+
+> **Multi-turn:** Pass the `token_map_id` from a previous `sanitize` response to reuse the same token map across conversation turns. The same PII will always map to the same token.
 
 **Response:**
 ```json
