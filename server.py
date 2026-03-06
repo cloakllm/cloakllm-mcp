@@ -141,6 +141,7 @@ def sanitize(
                 "entity_count": len(token_map.detections),
                 "categories": categories,
                 "mode": "redact",
+                "entity_details": token_map.entity_details,
             }
 
         if reuse_id:
@@ -161,6 +162,7 @@ def sanitize(
             "token_map_id": map_id,
             "entity_count": token_map.entity_count,
             "categories": categories,
+            "entity_details": token_map.entity_details,
         }
     except Exception as e:
         logger.exception("sanitize tool failed")

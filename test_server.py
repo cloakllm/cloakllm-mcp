@@ -172,3 +172,24 @@ class TestAnalyze:
         assert isinstance(entity["end"], int)
         assert isinstance(entity["confidence"], (int, float))
         assert entity["source"] == "regex"
+
+
+class TestEntityDetails:
+
+    def test_sanitize_includes_entity_details(self):
+        result = sanitize("Email john@acme.com, SSN 123-45-6789")
+        assert "error" not in result
+        assert "entity_details" in result
+        assert isinstance(result["entity_details"], list)
+        assert len(result["entity_details"]) >= 2
+        for d in result["entity_details"]:
+            assert "category" in d
+            assert "token" in d
+            assert "text" not in d
+
+    def test_sanitize_redact_mode_includes_entity_details(self):
+        result = sanitize("Email john@acme.com", mode="redact")
+        assert "error" not in result
+        assert "entity_details" in result
+        assert len(result["entity_details"]) >= 1
+        assert result["entity_details"][0]["token"] == "[EMAIL_REDACTED]"

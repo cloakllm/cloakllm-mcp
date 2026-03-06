@@ -6,7 +6,7 @@ MCP server that wraps CloakLLM's Python SDK as tools for Claude Desktop and othe
 
 | Tool | Description |
 |------|-------------|
-| `sanitize` | Detect & cloak PII, return sanitized text + token map ID. Pass `mode: "redact"` for irreversible PII removal (no token_map_id returned). |
+| `sanitize` | Detect & cloak PII, return sanitized text + token map ID + entity_details. Pass `mode: "redact"` for irreversible PII removal (no token_map_id returned). |
 | `desanitize` | Restore original values using a token map ID |
 | `analyze` | Detect PII without cloaking (pure analysis) |
 
@@ -70,7 +70,11 @@ Or using `uvx`:
   "sanitized": "Email [EMAIL_0] about the meeting with [PERSON_0] at 742 Evergreen Terrace",
   "token_map_id": "a1b2c3d4-...",
   "entity_count": 2,
-  "categories": {"EMAIL": 1, "PERSON": 1}
+  "categories": {"EMAIL": 1, "PERSON": 1},
+  "entity_details": [
+    {"category": "EMAIL", "start": 6, "end": 19, "length": 13, "confidence": 0.95, "source": "regex", "token": "[EMAIL_0]"},
+    {"category": "PERSON", "start": 42, "end": 56, "length": 14, "confidence": 0.85, "source": "spacy", "token": "[PERSON_0]"}
+  ]
 }
 ```
 
