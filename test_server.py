@@ -41,7 +41,7 @@ sys.modules["mcp.server.fastmcp"] = mcp_fastmcp_mock
 os.environ["CLOAKLLM_AUDIT_ENABLED"] = "false"
 os.environ["CLOAKLLM_LOG_DIR"] = tempfile.mkdtemp()
 
-from server import sanitize, desanitize, analyze, _TOKEN_MAPS
+from server import sanitize, sanitize_batch, desanitize, analyze, _TOKEN_MAPS
 
 
 class TestSanitize:
@@ -193,3 +193,42 @@ class TestEntityDetails:
         assert "entity_details" in result
         assert len(result["entity_details"]) >= 1
         assert result["entity_details"][0]["token"] == "[EMAIL_REDACTED]"
+
+
+class TestBatchSanitize:
+
+    def test_basic_batch(self):
+        result = sanitize_batch(["Email john@acme.com", "SSN 123-45-6789"])
+        assert "error" not in result
+        assert len(result["sanitized"]) == 2
+        assert "[EMAIL_0]" in result["sanitized"][0]
+        assert "[SSN_0]" in result["sanitized"][1]
+        assert result["token_map_id"] in _TOKEN_MAPS
+
+    def test_shared_tokens(self):
+        result = sanitize_batch([
+            "Contact john@acme.com about project",
+            "Follow up with john@acme.com",
+        ])
+        assert "error" not in result
+        assert "[EMAIL_0]" in result["sanitized"][0]
+        assert "[EMAIL_0]" in result["sanitized"][1]
+        # Same email should use same token (entity_count may include NER detections)
+        assert "EMAIL" in result["categories"]
+
+    def test_reuse_token_map_id(self):
+        result1 = sanitize("Email john@acme.com")
+        map_id = result1["token_map_id"]
+        result2 = sanitize_batch(
+            ["Remind john@acme.com", "Also jane@acme.com"],
+            token_map_id=map_id,
+        )
+        assert "error" not in result2
+        assert result2["token_map_id"] == map_id
+        assert "[EMAIL_0]" in result2["sanitized"][0]
+
+    def test_empty_list(self):
+        result = sanitize_batch([])
+        assert "error" not in result
+        assert result["sanitized"] == []
+        assert result["entity_count"] == 0

@@ -170,6 +170,68 @@ def sanitize(
 
 
 @mcp.tool()
+def sanitize_batch(
+    texts: list[str],
+    model: str = "",
+    provider: str = "",
+    metadata: str = "",
+    token_map_id: str = "",
+) -> dict:
+    """
+    Detect and cloak PII in multiple texts with a shared token map.
+
+    Same entities across texts get the same token. Returns a single
+    token_map_id for later desanitization of any text in the batch.
+
+    Args:
+        texts: List of texts to sanitize.
+        model: Optional LLM model name (for audit logging).
+        provider: Optional LLM provider name (for audit logging).
+        metadata: Optional metadata string (for audit logging).
+        token_map_id: Optional ID from a previous call to reuse the token map.
+
+    Returns:
+        dict with sanitized texts, token_map_id, entity_count, and categories.
+    """
+    try:
+        existing_map = None
+        reuse_id = ""
+
+        if token_map_id:
+            entry = _TOKEN_MAPS.get(token_map_id)
+            if entry is None:
+                return {"error": f"Token map '{token_map_id}' not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
+            existing_map = entry["token_map"]
+            reuse_id = token_map_id
+
+        sanitized_texts, token_map = _shield.sanitize_batch(
+            texts, model=model or None, token_map=existing_map
+        )
+
+        if reuse_id:
+            _TOKEN_MAPS[reuse_id]["token_map"] = token_map
+            _TOKEN_MAPS[reuse_id]["created"] = time.time()
+            map_id = reuse_id
+        else:
+            map_id = _store_token_map(token_map)
+
+        categories = {}
+        for token_str in token_map.reverse:
+            cat = token_str.strip("[]").rsplit("_", 1)[0]
+            categories[cat] = categories.get(cat, 0) + 1
+
+        return {
+            "sanitized": sanitized_texts,
+            "token_map_id": map_id,
+            "entity_count": token_map.entity_count,
+            "categories": categories,
+        }
+    except Exception as e:
+        logger.exception("sanitize_batch tool failed")
+        return {"error": "Batch sanitization failed. Check server logs for details."}
+
+
+@mcp.tool()
 def desanitize(
     text: str,
     token_map_id: str,
