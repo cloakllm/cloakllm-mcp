@@ -5,6 +5,12 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-03-08
+
+### Changed
+
+- Version bump to stay in sync with cloakllm 0.1.9 (performance & observability)
+
 ## [0.1.8] - 2026-03-07
 
 ### Added
@@ -64,6 +70,7 @@ versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Sanitized error messages (no PII leaks in MCP tool responses)
 - Removed broken `[project.scripts]` entry point
 
+[0.1.9]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.9
 [0.1.8]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.8
 [0.1.7]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.7
 [0.1.6]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.6
