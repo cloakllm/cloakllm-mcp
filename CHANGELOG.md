@@ -5,6 +5,13 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-09
+
+### Added
+
+- `custom_llm_categories` parameter on `sanitize`, `sanitize_batch`, and `analyze` tools — JSON array of `[name, description]` pairs for domain-specific PII types
+- 3 new tests for custom LLM categories (total: 22 tests)
+
 ## [0.1.9] - 2026-03-08
 
 ### Changed
@@ -70,6 +77,7 @@ versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Sanitized error messages (no PII leaks in MCP tool responses)
 - Removed broken `[project.scripts]` entry point
 
+[0.2.0]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.2.0
 [0.1.9]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.9
 [0.1.8]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.8
 [0.1.7]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.7

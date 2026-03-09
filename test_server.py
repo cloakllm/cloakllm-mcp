@@ -232,3 +232,27 @@ class TestBatchSanitize:
         assert "error" not in result
         assert result["sanitized"] == []
         assert result["entity_count"] == 0
+
+
+class TestCustomLlmCategories:
+
+    def test_sanitize_accepts_custom_llm_categories_param(self):
+        """sanitize accepts custom_llm_categories param without error."""
+        import json
+        cats = json.dumps([["PATIENT_ID", "Hospital patient ID"]])
+        result = sanitize("Contact john@acme.com", custom_llm_categories=cats)
+        assert "error" not in result
+        # Still detects regex-based PII normally
+        assert "[EMAIL_0]" in result["sanitized"]
+
+    def test_sanitize_invalid_json_returns_error(self):
+        """Invalid JSON in custom_llm_categories returns error."""
+        result = sanitize("Some text", custom_llm_categories="not valid json")
+        assert "error" in result
+
+    def test_analyze_accepts_custom_llm_categories_param(self):
+        """analyze accepts custom_llm_categories param without error."""
+        import json
+        cats = json.dumps([["PATIENT_ID", "Hospital patient ID"]])
+        result = analyze("Contact john@acme.com", custom_llm_categories=cats)
+        assert "error" not in result

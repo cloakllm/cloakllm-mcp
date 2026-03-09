@@ -15,6 +15,7 @@ Run:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -79,6 +80,7 @@ def sanitize(
     metadata: str = "",
     token_map_id: str = "",
     mode: str = "",
+    custom_llm_categories: str = "",
 ) -> dict:
     """
     Detect and cloak PII in text.
@@ -107,9 +109,30 @@ def sanitize(
     try:
         # Use a separate shield instance if mode is "redact"
         effective_mode = mode if mode in ("tokenize", "redact") else "tokenize"
+
+        # Parse custom LLM categories
+        parsed_categories = []
+        if custom_llm_categories:
+            try:
+                parsed_categories = json.loads(custom_llm_categories)
+                if not isinstance(parsed_categories, list):
+                    return {"error": "custom_llm_categories must be a JSON array of [name, description] pairs."}
+            except json.JSONDecodeError:
+                return {"error": "custom_llm_categories must be valid JSON."}
+
         if effective_mode == "redact":
-            shield = Shield(config=ShieldConfig(
+            config_kwargs = dict(
                 mode="redact",
+                audit_enabled=_shield.config.audit_enabled,
+                log_dir=_shield.config.log_dir,
+                log_original_values=False,
+            )
+            if parsed_categories:
+                config_kwargs["custom_llm_categories"] = parsed_categories
+            shield = Shield(config=ShieldConfig(**config_kwargs))
+        elif parsed_categories:
+            shield = Shield(config=ShieldConfig(
+                custom_llm_categories=parsed_categories,
                 audit_enabled=_shield.config.audit_enabled,
                 log_dir=_shield.config.log_dir,
                 log_original_values=False,
@@ -176,6 +199,7 @@ def sanitize_batch(
     provider: str = "",
     metadata: str = "",
     token_map_id: str = "",
+    custom_llm_categories: str = "",
 ) -> dict:
     """
     Detect and cloak PII in multiple texts with a shared token map.
@@ -194,6 +218,26 @@ def sanitize_batch(
         dict with sanitized texts, token_map_id, entity_count, and categories.
     """
     try:
+        # Parse custom LLM categories
+        parsed_categories = []
+        if custom_llm_categories:
+            try:
+                parsed_categories = json.loads(custom_llm_categories)
+                if not isinstance(parsed_categories, list):
+                    return {"error": "custom_llm_categories must be a JSON array of [name, description] pairs."}
+            except json.JSONDecodeError:
+                return {"error": "custom_llm_categories must be valid JSON."}
+
+        if parsed_categories:
+            shield = Shield(config=ShieldConfig(
+                custom_llm_categories=parsed_categories,
+                audit_enabled=_shield.config.audit_enabled,
+                log_dir=_shield.config.log_dir,
+                log_original_values=False,
+            ))
+        else:
+            shield = _shield
+
         existing_map = None
         reuse_id = ""
 
@@ -204,7 +248,7 @@ def sanitize_batch(
             existing_map = entry["token_map"]
             reuse_id = token_map_id
 
-        sanitized_texts, token_map = _shield.sanitize_batch(
+        sanitized_texts, token_map = shield.sanitize_batch(
             texts, model=model or None, token_map=existing_map
         )
 
@@ -263,7 +307,7 @@ def desanitize(
 
 
 @mcp.tool()
-def analyze(text: str) -> dict:
+def analyze(text: str, custom_llm_categories: str = "") -> dict:
     """
     Analyze text for PII without cloaking.
 
@@ -277,7 +321,27 @@ def analyze(text: str) -> dict:
         dict with entity_count and list of detected entities.
     """
     try:
-        result = _shield.analyze(text)
+        # Parse custom LLM categories
+        parsed_categories = []
+        if custom_llm_categories:
+            try:
+                parsed_categories = json.loads(custom_llm_categories)
+                if not isinstance(parsed_categories, list):
+                    return {"error": "custom_llm_categories must be a JSON array of [name, description] pairs."}
+            except json.JSONDecodeError:
+                return {"error": "custom_llm_categories must be valid JSON."}
+
+        if parsed_categories:
+            shield = Shield(config=ShieldConfig(
+                custom_llm_categories=parsed_categories,
+                audit_enabled=_shield.config.audit_enabled,
+                log_dir=_shield.config.log_dir,
+                log_original_values=False,
+            ))
+        else:
+            shield = _shield
+
+        result = shield.analyze(text)
         return {
             "entity_count": result["entity_count"],
             "entities": [
