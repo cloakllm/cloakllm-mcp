@@ -5,6 +5,14 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-03-10
+
+### Added
+
+- `entity_hashing` and `entity_hash_key` parameters on `sanitize` tool
+- Entity hashes included in returned `entity_details` when enabled
+- 2 new tests (total: 24 tests)
+
 ## [0.2.0] - 2026-03-09
 
 ### Added
@@ -77,6 +85,7 @@ versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Sanitized error messages (no PII leaks in MCP tool responses)
 - Removed broken `[project.scripts]` entry point
 
+[0.2.1]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.2.0
 [0.1.9]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.9
 [0.1.8]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.8

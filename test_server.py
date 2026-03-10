@@ -256,3 +256,28 @@ class TestCustomLlmCategories:
         cats = json.dumps([["PATIENT_ID", "Hospital patient ID"]])
         result = analyze("Contact john@acme.com", custom_llm_categories=cats)
         assert "error" not in result
+
+
+class TestEntityHashing:
+
+    def test_sanitize_with_entity_hashing(self):
+        """entity_hash should appear in entity_details when hashing enabled."""
+        result = sanitize(
+            "Contact john@acme.com",
+            entity_hashing=True,
+            entity_hash_key="test-key",
+        )
+        assert "error" not in result
+        assert "entity_details" in result
+        assert len(result["entity_details"]) >= 1
+        for detail in result["entity_details"]:
+            assert "entity_hash" in detail
+            assert len(detail["entity_hash"]) == 64
+
+    def test_sanitize_without_hashing_no_hash(self):
+        """entity_hash should not appear when hashing is disabled (default)."""
+        result = sanitize("Contact john@acme.com")
+        assert "error" not in result
+        assert "entity_details" in result
+        for detail in result["entity_details"]:
+            assert "entity_hash" not in detail

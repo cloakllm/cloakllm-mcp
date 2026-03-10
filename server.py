@@ -81,6 +81,8 @@ def sanitize(
     token_map_id: str = "",
     mode: str = "",
     custom_llm_categories: str = "",
+    entity_hashing: bool = False,
+    entity_hash_key: str = "",
 ) -> dict:
     """
     Detect and cloak PII in text.
@@ -126,17 +128,23 @@ def sanitize(
                 audit_enabled=_shield.config.audit_enabled,
                 log_dir=_shield.config.log_dir,
                 log_original_values=False,
+                entity_hashing=entity_hashing,
+                entity_hash_key=entity_hash_key,
             )
             if parsed_categories:
                 config_kwargs["custom_llm_categories"] = parsed_categories
             shield = Shield(config=ShieldConfig(**config_kwargs))
-        elif parsed_categories:
-            shield = Shield(config=ShieldConfig(
-                custom_llm_categories=parsed_categories,
+        elif parsed_categories or entity_hashing:
+            config_kwargs = dict(
                 audit_enabled=_shield.config.audit_enabled,
                 log_dir=_shield.config.log_dir,
                 log_original_values=False,
-            ))
+                entity_hashing=entity_hashing,
+                entity_hash_key=entity_hash_key,
+            )
+            if parsed_categories:
+                config_kwargs["custom_llm_categories"] = parsed_categories
+            shield = Shield(config=ShieldConfig(**config_kwargs))
         else:
             shield = _shield
 
