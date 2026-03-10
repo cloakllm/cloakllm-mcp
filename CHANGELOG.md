@@ -5,6 +5,17 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-03-10
+
+### Fixed
+
+- `provider` and `metadata` parameters silently dropped in `sanitize` tool — now forwarded to Shield
+- `metadata` string parameter now parsed as JSON dict before passing to Shield
+- `sanitize_batch` missing `mode`, `entity_hashing`, `entity_hash_key` parameters — now supports all modes
+- Inconsistent category counting between redact and tokenize modes — now uses `token_map.categories` consistently
+- `sanitize_batch` missing `entity_details` in response — now included
+- Module docstring listing 3 tools instead of 4 — updated to include `sanitize_batch`
+
 ## [0.2.1] - 2026-03-10
 
 ### Added
@@ -85,6 +96,7 @@ versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Sanitized error messages (no PII leaks in MCP tool responses)
 - Removed broken `[project.scripts]` entry point
 
+[0.2.2]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.2.0
 [0.1.9]: https://github.com/cloakllm/cloakllm-mcp/releases/tag/v0.1.9

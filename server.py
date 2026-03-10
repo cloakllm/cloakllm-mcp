@@ -1,12 +1,13 @@
 """
 CloakLLM MCP Server.
 
-Exposes CloakLLM's Python SDK as 3 MCP tools for Claude Desktop and other
+Exposes CloakLLM's Python SDK as 4 MCP tools for Claude Desktop and other
 MCP-compatible clients:
 
-  - sanitize  — Detect & cloak PII, return sanitized text + token map ID
-  - desanitize — Restore original values using a token map ID
-  - analyze   — Detect PII without cloaking (pure analysis)
+  - sanitize       — Detect & cloak PII, return sanitized text + token map ID
+  - sanitize_batch — Detect & cloak PII in multiple texts with a shared token map
+  - desanitize     — Restore original values using a token map ID
+  - analyze        — Detect PII without cloaking (pure analysis)
 
 Run:
   python -m mcp run server.py
@@ -158,19 +159,19 @@ def sanitize(
             existing_map = entry["token_map"]
             reuse_id = token_map_id
 
+        metadata_dict = json.loads(metadata) if metadata else None
+
         sanitized, token_map = shield.sanitize(
-            text, model=model or None, token_map=existing_map
+            text, model=model or None, provider=provider or None,
+            metadata=metadata_dict, token_map=existing_map
         )
 
         # In redact mode, don't store a token map (nothing to reverse)
         if effective_mode == "redact":
-            categories = {}
-            for det in token_map.detections:
-                categories[det.category] = categories.get(det.category, 0) + 1
             return {
                 "sanitized": sanitized,
                 "entity_count": len(token_map.detections),
-                "categories": categories,
+                "categories": token_map.categories,
                 "mode": "redact",
                 "entity_details": token_map.entity_details,
             }
@@ -183,16 +184,11 @@ def sanitize(
         else:
             map_id = _store_token_map(token_map)
 
-        categories = {}
-        for token_str in token_map.reverse:
-            cat = token_str.strip("[]").rsplit("_", 1)[0]
-            categories[cat] = categories.get(cat, 0) + 1
-
         return {
             "sanitized": sanitized,
             "token_map_id": map_id,
             "entity_count": token_map.entity_count,
-            "categories": categories,
+            "categories": token_map.categories,
             "entity_details": token_map.entity_details,
         }
     except Exception as e:
@@ -208,6 +204,9 @@ def sanitize_batch(
     metadata: str = "",
     token_map_id: str = "",
     custom_llm_categories: str = "",
+    mode: str = "",
+    entity_hashing: bool = False,
+    entity_hash_key: str = "",
 ) -> dict:
     """
     Detect and cloak PII in multiple texts with a shared token map.
@@ -236,29 +235,49 @@ def sanitize_batch(
             except json.JSONDecodeError:
                 return {"error": "custom_llm_categories must be valid JSON."}
 
-        if parsed_categories:
-            shield = Shield(config=ShieldConfig(
-                custom_llm_categories=parsed_categories,
+        effective_mode = mode if mode in ("tokenize", "redact") else "tokenize"
+
+        if parsed_categories or effective_mode == "redact" or entity_hashing:
+            config_kwargs = dict(
+                mode=effective_mode,
                 audit_enabled=_shield.config.audit_enabled,
                 log_dir=_shield.config.log_dir,
                 log_original_values=False,
-            ))
+                entity_hashing=entity_hashing,
+                entity_hash_key=entity_hash_key,
+            )
+            if parsed_categories:
+                config_kwargs["custom_llm_categories"] = parsed_categories
+            shield = Shield(config=ShieldConfig(**config_kwargs))
         else:
             shield = _shield
 
         existing_map = None
         reuse_id = ""
 
-        if token_map_id:
+        if token_map_id and effective_mode != "redact":
             entry = _TOKEN_MAPS.get(token_map_id)
             if entry is None:
                 return {"error": f"Token map '{token_map_id}' not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
             existing_map = entry["token_map"]
             reuse_id = token_map_id
 
+        metadata_dict = json.loads(metadata) if metadata else None
+
         sanitized_texts, token_map = shield.sanitize_batch(
-            texts, model=model or None, token_map=existing_map
+            texts, model=model or None, provider=provider or None,
+            metadata=metadata_dict, token_map=existing_map
         )
+
+        # In redact mode, don't store a token map (nothing to reverse)
+        if effective_mode == "redact":
+            return {
+                "sanitized": sanitized_texts,
+                "entity_count": len(token_map.detections),
+                "categories": token_map.categories,
+                "mode": "redact",
+                "entity_details": token_map.entity_details,
+            }
 
         if reuse_id:
             _TOKEN_MAPS[reuse_id]["token_map"] = token_map
@@ -267,16 +286,12 @@ def sanitize_batch(
         else:
             map_id = _store_token_map(token_map)
 
-        categories = {}
-        for token_str in token_map.reverse:
-            cat = token_str.strip("[]").rsplit("_", 1)[0]
-            categories[cat] = categories.get(cat, 0) + 1
-
         return {
             "sanitized": sanitized_texts,
             "token_map_id": map_id,
             "entity_count": token_map.entity_count,
-            "categories": categories,
+            "categories": token_map.categories,
+            "entity_details": token_map.entity_details,
         }
     except Exception as e:
         logger.exception("sanitize_batch tool failed")
