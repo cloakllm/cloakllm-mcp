@@ -5,6 +5,12 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-03-13
+
+### Changed
+
+- Bumped `cloakllm` dependency to `>=0.2.3` (includes LiteLLM multi-choice security fix)
+
 ## [0.2.2] - 2026-03-10
 
 ### Fixed
