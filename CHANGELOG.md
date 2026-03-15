@@ -5,6 +5,12 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-15
+
+### Changed
+
+- Version bump to keep all packages in sync (no code changes; streaming changes are in the SDK)
+
 ## [0.2.5] - 2026-03-15
 
 ### Added
