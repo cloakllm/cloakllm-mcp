@@ -1,13 +1,15 @@
 """
 CloakLLM MCP Server.
 
-Exposes CloakLLM's Python SDK as 4 MCP tools for Claude Desktop and other
+Exposes CloakLLM's Python SDK as 6 MCP tools for Claude Desktop and other
 MCP-compatible clients:
 
-  - sanitize       — Detect & cloak PII, return sanitized text + token map ID
-  - sanitize_batch — Detect & cloak PII in multiple texts with a shared token map
-  - desanitize     — Restore original values using a token map ID
-  - analyze        — Detect PII without cloaking (pure analysis)
+  - sanitize          — Detect & cloak PII, return sanitized text + token map ID
+  - sanitize_batch    — Detect & cloak PII in multiple texts with a shared token map
+  - desanitize        — Restore original values using a token map ID
+  - desanitize_batch  — Restore original values in multiple texts using a token map ID
+  - analyze           — Detect PII without cloaking (pure analysis)
+  - analyze_batch     — Detect PII in multiple texts without cloaking
 
 Run:
   python -m mcp run server.py
@@ -302,6 +304,7 @@ def sanitize_batch(
 def desanitize(
     text: str,
     token_map_id: str,
+    metadata: str = "",
 ) -> dict:
     """
     Restore original values in text using a token map.
@@ -312,6 +315,7 @@ def desanitize(
     Args:
         text: The text containing tokens to restore.
         token_map_id: The ID returned by a previous sanitize call.
+        metadata: Optional metadata string (for audit logging).
 
     Returns:
         dict with the restored text.
@@ -321,12 +325,49 @@ def desanitize(
         if entry is None:
             return {"error": f"Token map '{token_map_id}' not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
 
+        metadata_dict = json.loads(metadata) if metadata else None
+
         token_map = entry["token_map"]
-        restored = _shield.desanitize(text, token_map)
+        restored = _shield.desanitize(text, token_map, metadata=metadata_dict)
         return {"restored": restored}
     except Exception as e:
         logger.exception("desanitize tool failed")
         return {"error": "Desanitization failed. Check server logs for details."}
+
+
+@mcp.tool()
+def desanitize_batch(
+    texts: list[str],
+    token_map_id: str,
+    metadata: str = "",
+) -> dict:
+    """
+    Restore original values in multiple texts using a shared token map.
+
+    Replaces tokens like [EMAIL_0] back to the original values in each text.
+    Requires a token_map_id from a previous sanitize or sanitize_batch call.
+
+    Args:
+        texts: List of texts containing tokens to restore.
+        token_map_id: The ID returned by a previous sanitize call.
+        metadata: Optional metadata string (for audit logging).
+
+    Returns:
+        dict with list of restored texts.
+    """
+    try:
+        entry = _TOKEN_MAPS.get(token_map_id)
+        if entry is None:
+            return {"error": f"Token map '{token_map_id}' not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
+
+        metadata_dict = json.loads(metadata) if metadata else None
+
+        token_map = entry["token_map"]
+        restored = _shield.desanitize_batch(texts, token_map, metadata=metadata_dict)
+        return {"restored": restored}
+    except Exception as e:
+        logger.exception("desanitize_batch tool failed")
+        return {"error": "Batch desanitization failed. Check server logs for details."}
 
 
 @mcp.tool()
@@ -382,6 +423,71 @@ def analyze(text: str, custom_llm_categories: str = "") -> dict:
     except Exception as e:
         logger.exception("analyze tool failed")
         return {"error": "Analysis failed. Check server logs for details."}
+
+
+@mcp.tool()
+def analyze_batch(texts: list[str], custom_llm_categories: str = "") -> dict:
+    """
+    Analyze multiple texts for PII without cloaking.
+
+    Returns detected entities per text with their categories, positions,
+    confidence scores, and detection method. Does not modify the texts.
+
+    Args:
+        texts: List of texts to analyze for PII.
+        custom_llm_categories: Optional JSON array of [name, description] pairs.
+
+    Returns:
+        dict with results per text and total entity count.
+    """
+    try:
+        # Parse custom LLM categories
+        parsed_categories = []
+        if custom_llm_categories:
+            try:
+                parsed_categories = json.loads(custom_llm_categories)
+                if not isinstance(parsed_categories, list):
+                    return {"error": "custom_llm_categories must be a JSON array of [name, description] pairs."}
+            except json.JSONDecodeError:
+                return {"error": "custom_llm_categories must be valid JSON."}
+
+        if parsed_categories:
+            shield = Shield(config=ShieldConfig(
+                custom_llm_categories=parsed_categories,
+                audit_enabled=_shield.config.audit_enabled,
+                log_dir=_shield.config.log_dir,
+                log_original_values=False,
+            ))
+        else:
+            shield = _shield
+
+        results = []
+        total_count = 0
+        for text in texts:
+            result = shield.analyze(text)
+            total_count += result["entity_count"]
+            results.append({
+                "entity_count": result["entity_count"],
+                "entities": [
+                    {
+                        "text": e["text"],
+                        "category": e["category"],
+                        "start": e["start"],
+                        "end": e["end"],
+                        "confidence": e["confidence"],
+                        "source": e["source"],
+                    }
+                    for e in result["entities"]
+                ],
+            })
+
+        return {
+            "results": results,
+            "total_entity_count": total_count,
+        }
+    except Exception as e:
+        logger.exception("analyze_batch tool failed")
+        return {"error": "Batch analysis failed. Check server logs for details."}
 
 
 # ── Entry point ──────────────────────────────────────────────────

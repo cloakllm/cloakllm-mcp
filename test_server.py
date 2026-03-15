@@ -41,7 +41,7 @@ sys.modules["mcp.server.fastmcp"] = mcp_fastmcp_mock
 os.environ["CLOAKLLM_AUDIT_ENABLED"] = "false"
 os.environ["CLOAKLLM_LOG_DIR"] = tempfile.mkdtemp()
 
-from server import sanitize, sanitize_batch, desanitize, analyze, _TOKEN_MAPS
+from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, _TOKEN_MAPS
 
 
 class TestSanitize:
@@ -281,3 +281,94 @@ class TestEntityHashing:
         assert "entity_details" in result
         for detail in result["entity_details"]:
             assert "entity_hash" not in detail
+
+
+class TestDesanitizeBatch:
+
+    def test_batch_roundtrip(self):
+        """sanitize_batch → desanitize_batch round-trip restores all texts."""
+        originals = ["Email john@acme.com", "SSN 123-45-6789"]
+        san = sanitize_batch(originals)
+        assert "error" not in san
+
+        des = desanitize_batch(san["sanitized"], san["token_map_id"])
+        assert "error" not in des
+        assert des["restored"] == originals
+
+    def test_single_text_roundtrip(self):
+        """desanitize_batch works with a single text."""
+        original = "Contact john@acme.com"
+        san = sanitize(original)
+        des = desanitize_batch([san["sanitized"]], san["token_map_id"])
+        assert "error" not in des
+        assert des["restored"] == [original]
+
+    def test_invalid_map_id(self):
+        result = desanitize_batch(["some text"], "nonexistent-id")
+        assert "error" in result
+        assert "not found" in result["error"]
+
+    def test_with_metadata(self):
+        """desanitize_batch accepts metadata parameter."""
+        import json
+        san = sanitize("Email john@acme.com")
+        des = desanitize_batch(
+            [san["sanitized"]],
+            san["token_map_id"],
+            metadata=json.dumps({"session": "test-123"}),
+        )
+        assert "error" not in des
+        assert "john@acme.com" in des["restored"][0]
+
+
+class TestAnalyzeBatch:
+
+    def test_basic_batch(self):
+        """analyze_batch returns results per text."""
+        result = analyze_batch(["Email john@acme.com", "SSN 123-45-6789"])
+        assert "error" not in result
+        assert len(result["results"]) == 2
+        assert result["total_entity_count"] >= 2
+        assert any(e["category"] == "EMAIL" for e in result["results"][0]["entities"])
+        assert any(e["category"] == "SSN" for e in result["results"][1]["entities"])
+
+    def test_no_pii(self):
+        """analyze_batch with clean texts returns zero entities."""
+        result = analyze_batch(["Hello world", "Nice weather"])
+        assert "error" not in result
+        assert result["total_entity_count"] == 0
+        assert all(r["entity_count"] == 0 for r in result["results"])
+
+    def test_empty_list(self):
+        result = analyze_batch([])
+        assert "error" not in result
+        assert result["results"] == []
+        assert result["total_entity_count"] == 0
+
+    def test_entity_fields(self):
+        """analyze_batch entity fields match analyze output format."""
+        result = analyze_batch(["Contact test@example.com about the project"])
+        assert "error" not in result
+        email_entity = next(
+            e for e in result["results"][0]["entities"] if e["category"] == "EMAIL"
+        )
+        assert email_entity["text"] == "test@example.com"
+        assert isinstance(email_entity["start"], int)
+        assert isinstance(email_entity["end"], int)
+        assert isinstance(email_entity["confidence"], (int, float))
+        assert email_entity["source"] == "regex"
+
+
+class TestDesanitizeMetadata:
+
+    def test_desanitize_accepts_metadata(self):
+        """desanitize accepts metadata parameter without error."""
+        import json
+        san = sanitize("Email john@acme.com")
+        des = desanitize(
+            san["sanitized"],
+            san["token_map_id"],
+            metadata=json.dumps({"user_id": "u-42"}),
+        )
+        assert "error" not in des
+        assert des["restored"] == "Email john@acme.com"

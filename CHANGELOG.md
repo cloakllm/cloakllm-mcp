@@ -5,6 +5,14 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-03-15
+
+### Added
+
+- `desanitize_batch` tool — restore original values in multiple texts using a shared token map
+- `analyze_batch` tool — analyze multiple texts for PII without cloaking
+- `metadata` parameter on `desanitize` tool (for audit logging, matching sanitize behavior)
+
 ## [0.2.4] - 2026-03-15
 
 ### Changed
