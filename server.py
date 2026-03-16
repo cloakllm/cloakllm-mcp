@@ -42,11 +42,18 @@ mcp = FastMCP(
 
 # ── Shield instance (env-based config) ───────────────────────────
 
-_shield = Shield(config=ShieldConfig(
+_shield_config_kwargs = dict(
     audit_enabled=os.getenv("CLOAKLLM_AUDIT_ENABLED", "true").lower() == "true",
     log_dir=os.getenv("CLOAKLLM_LOG_DIR", "./cloakllm_audit"),
     log_original_values=False,
-))
+)
+
+# Attestation: if signing key path is set, load the keypair
+_signing_key_path = os.getenv("CLOAKLLM_SIGNING_KEY_PATH", "")
+if _signing_key_path:
+    _shield_config_kwargs["attestation_key_path"] = _signing_key_path
+
+_shield = Shield(config=ShieldConfig(**_shield_config_kwargs))
 
 # ── In-memory token map store with TTL ───────────────────────────
 
@@ -170,13 +177,16 @@ def sanitize(
 
         # In redact mode, don't store a token map (nothing to reverse)
         if effective_mode == "redact":
-            return {
+            result = {
                 "sanitized": sanitized,
                 "entity_count": len(token_map.detections),
                 "categories": token_map.categories,
                 "mode": "redact",
                 "entity_details": token_map.entity_details,
             }
+            if token_map.certificate is not None:
+                result["certificate"] = token_map.certificate.to_dict()
+            return result
 
         if reuse_id:
             # Refresh timestamp to prevent TTL expiry during active conversations
@@ -186,13 +196,16 @@ def sanitize(
         else:
             map_id = _store_token_map(token_map)
 
-        return {
+        result = {
             "sanitized": sanitized,
             "token_map_id": map_id,
             "entity_count": token_map.entity_count,
             "categories": token_map.categories,
             "entity_details": token_map.entity_details,
         }
+        if token_map.certificate is not None:
+            result["certificate"] = token_map.certificate.to_dict()
+        return result
     except Exception as e:
         logger.exception("sanitize tool failed")
         return {"error": "Sanitization failed. Check server logs for details."}
@@ -273,13 +286,16 @@ def sanitize_batch(
 
         # In redact mode, don't store a token map (nothing to reverse)
         if effective_mode == "redact":
-            return {
+            result = {
                 "sanitized": sanitized_texts,
                 "entity_count": len(token_map.detections),
                 "categories": token_map.categories,
                 "mode": "redact",
                 "entity_details": token_map.entity_details,
             }
+            if token_map.certificate is not None:
+                result["certificate"] = token_map.certificate.to_dict()
+            return result
 
         if reuse_id:
             _TOKEN_MAPS[reuse_id]["token_map"] = token_map
@@ -288,13 +304,16 @@ def sanitize_batch(
         else:
             map_id = _store_token_map(token_map)
 
-        return {
+        result = {
             "sanitized": sanitized_texts,
             "token_map_id": map_id,
             "entity_count": token_map.entity_count,
             "categories": token_map.categories,
             "entity_details": token_map.entity_details,
         }
+        if token_map.certificate is not None:
+            result["certificate"] = token_map.certificate.to_dict()
+        return result
     except Exception as e:
         logger.exception("sanitize_batch tool failed")
         return {"error": "Batch sanitization failed. Check server logs for details."}
