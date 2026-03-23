@@ -5,6 +5,25 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-23
+
+### Added
+
+- Input validation: `MAX_TEXT_LENGTH` (1MB), `MAX_BATCH_SIZE` (100), `MAX_METADATA_LENGTH` (10KB)
+- Token map capacity limits with LRU eviction (`MAX_TOKEN_MAPS=1000`)
+- Shield instance caching to avoid per-request construction
+- `include_text` opt-in parameter for `analyze` and `analyze_batch` tools
+- `CLOAKLLM_ENTITY_HASH_KEY` env var fallback for entity hash key
+
+### Security
+
+- **PII leakage fix** — `analyze()` and `analyze_batch()` no longer return raw PII text by default
+- **Thread-safe token maps** — all `_TOKEN_MAPS` access wrapped with `threading.Lock`
+- **Error message hardening** — token map IDs no longer echoed in error responses
+- **Logger security** — replaced `logger.exception()` with `logger.error()` to avoid stack trace PII leakage
+- **Metadata validation** — type checking and size limits for metadata parameter
+- Removed `log_original_values` from ShieldConfig construction
+
 ## [0.3.2] - 2026-03-15
 
 ### Added

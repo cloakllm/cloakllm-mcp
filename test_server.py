@@ -167,7 +167,8 @@ class TestAnalyze:
         result = analyze("Email: test@example.com")
         assert "error" not in result
         entity = next(e for e in result["entities"] if e["category"] == "EMAIL")
-        assert entity["text"] == "test@example.com"
+        # text field is NOT included by default (security: PII removal)
+        assert "text" not in entity
         assert isinstance(entity["start"], int)
         assert isinstance(entity["end"], int)
         assert isinstance(entity["confidence"], (int, float))
@@ -352,7 +353,8 @@ class TestAnalyzeBatch:
         email_entity = next(
             e for e in result["results"][0]["entities"] if e["category"] == "EMAIL"
         )
-        assert email_entity["text"] == "test@example.com"
+        # text field is NOT included by default (security: PII removal)
+        assert "text" not in email_entity
         assert isinstance(email_entity["start"], int)
         assert isinstance(email_entity["end"], int)
         assert isinstance(email_entity["confidence"], (int, float))

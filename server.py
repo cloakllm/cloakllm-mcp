@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from typing import Any
@@ -30,6 +31,12 @@ from mcp.server.fastmcp import FastMCP
 from cloakllm import Shield, ShieldConfig
 
 logger = logging.getLogger("cloakllm.mcp")
+
+MAX_TEXT_LENGTH = 1_000_000   # 1 MB max input text
+MAX_BATCH_SIZE = 100          # Max texts in a batch
+MAX_TOKEN_MAPS = 10_000       # Max stored token maps
+MAX_METADATA_LENGTH = 10_000  # Max metadata JSON length
+MAX_SHIELD_CACHE = 50         # Max cached Shield instances
 
 # ── Server setup ─────────────────────────────────────────────────
 
@@ -45,7 +52,6 @@ mcp = FastMCP(
 _shield_config_kwargs = dict(
     audit_enabled=os.getenv("CLOAKLLM_AUDIT_ENABLED", "true").lower() == "true",
     log_dir=os.getenv("CLOAKLLM_LOG_DIR", "./cloakllm_audit"),
-    log_original_values=False,
 )
 
 # Attestation: if signing key path is set, load the keypair
@@ -57,8 +63,16 @@ _shield = Shield(config=ShieldConfig(**_shield_config_kwargs))
 
 # ── In-memory token map store with TTL ───────────────────────────
 
+# NOTE: Token maps are stored in a global dict without session scoping.
+# This server is designed for single-user, single-client deployments (e.g., Claude Desktop).
+# Do NOT expose this server to multiple untrusted clients.
+
 _TOKEN_MAPS: dict[str, dict[str, Any]] = {}
 _MAP_TTL_SECONDS = 3600  # 1 hour
+_token_maps_lock = threading.Lock()
+
+# Shield instance cache for non-default configurations
+_SHIELD_CACHE: dict[tuple, any] = {}
 
 
 def _cleanup_expired():
@@ -70,14 +84,70 @@ def _cleanup_expired():
 
 
 def _store_token_map(token_map) -> str:
-    """Store a token map and return its ID."""
-    _cleanup_expired()
-    map_id = str(uuid.uuid4())
-    _TOKEN_MAPS[map_id] = {
-        "token_map": token_map,
-        "created": time.time(),
-    }
-    return map_id
+    """Store a token map with TTL and return its ID."""
+    with _token_maps_lock:
+        _cleanup_expired()
+        # Evict oldest if at capacity
+        if len(_TOKEN_MAPS) >= MAX_TOKEN_MAPS:
+            oldest_key = min(_TOKEN_MAPS, key=lambda k: _TOKEN_MAPS[k]["created"])
+            del _TOKEN_MAPS[oldest_key]
+        map_id = str(uuid.uuid4())
+        _TOKEN_MAPS[map_id] = {"token_map": token_map, "created": time.time()}
+        return map_id
+
+
+# ── Input validation helpers ─────────────────────────────────────
+
+def _validate_text_input(text: str) -> dict | None:
+    """Validate text input size. Returns error dict or None."""
+    if len(text) > MAX_TEXT_LENGTH:
+        return {"error": f"Text exceeds maximum length ({MAX_TEXT_LENGTH} chars)."}
+    return None
+
+
+def _validate_batch_input(texts: list) -> dict | None:
+    """Validate batch input size. Returns error dict or None."""
+    if len(texts) > MAX_BATCH_SIZE:
+        return {"error": f"Batch exceeds maximum size ({MAX_BATCH_SIZE} texts)."}
+    for t in texts:
+        if len(t) > MAX_TEXT_LENGTH:
+            return {"error": f"Text in batch exceeds maximum length ({MAX_TEXT_LENGTH} chars)."}
+    return None
+
+
+def _validate_metadata(metadata: str) -> tuple[dict | None, dict | None]:
+    """Validate and parse metadata. Returns (parsed_dict_or_None, error_dict_or_None)."""
+    if not metadata:
+        return None, None
+    if len(metadata) > MAX_METADATA_LENGTH:
+        return None, {"error": f"Metadata exceeds maximum length ({MAX_METADATA_LENGTH} chars)."}
+    try:
+        parsed = json.loads(metadata)
+        if not isinstance(parsed, dict):
+            return None, {"error": "Metadata must be a JSON object."}
+        return parsed, None
+    except json.JSONDecodeError:
+        return None, {"error": "Invalid metadata JSON."}
+
+
+# ── Shield caching helper ────────────────────────────────────────
+
+def _get_cached_shield(mode="tokenize", entity_hashing=False, custom_llm_categories=None):
+    """Get or create a cached Shield instance for the given configuration."""
+    _cats = tuple(tuple(c) if isinstance(c, list) else (c.get("name", ""), c.get("description", "")) if isinstance(c, dict) else c for c in (custom_llm_categories or []))
+    cache_key = (mode, entity_hashing, _cats)
+    if cache_key in _SHIELD_CACHE:
+        return _SHIELD_CACHE[cache_key]
+    config_kwargs = dict(_shield_config_kwargs)
+    config_kwargs["mode"] = mode
+    config_kwargs["entity_hashing"] = entity_hashing
+    if custom_llm_categories:
+        config_kwargs["custom_llm_categories"] = custom_llm_categories
+    shield = Shield(config=ShieldConfig(**config_kwargs))
+    if len(_SHIELD_CACHE) >= MAX_SHIELD_CACHE:
+        _SHIELD_CACHE.pop(next(iter(_SHIELD_CACHE)))
+    _SHIELD_CACHE[cache_key] = shield
+    return shield
 
 
 # ── MCP Tools ────────────────────────────────────────────────────
@@ -119,6 +189,10 @@ def sanitize(
         dict with sanitized text, token_map_id, entity_count, and categories.
     """
     try:
+        err = _validate_text_input(text)
+        if err:
+            return json.dumps(err)
+
         # Use a separate shield instance if mode is "redact"
         effective_mode = mode if mode in ("tokenize", "redact") else "tokenize"
 
@@ -132,29 +206,24 @@ def sanitize(
             except json.JSONDecodeError:
                 return {"error": "custom_llm_categories must be valid JSON."}
 
-        if effective_mode == "redact":
-            config_kwargs = dict(
-                mode="redact",
-                audit_enabled=_shield.config.audit_enabled,
-                log_dir=_shield.config.log_dir,
-                log_original_values=False,
-                entity_hashing=entity_hashing,
-                entity_hash_key=entity_hash_key,
-            )
-            if parsed_categories:
-                config_kwargs["custom_llm_categories"] = parsed_categories
-            shield = Shield(config=ShieldConfig(**config_kwargs))
-        elif parsed_categories or entity_hashing:
-            config_kwargs = dict(
-                audit_enabled=_shield.config.audit_enabled,
-                log_dir=_shield.config.log_dir,
-                log_original_values=False,
-                entity_hashing=entity_hashing,
-                entity_hash_key=entity_hash_key,
-            )
-            if parsed_categories:
-                config_kwargs["custom_llm_categories"] = parsed_categories
-            shield = Shield(config=ShieldConfig(**config_kwargs))
+        effective_hash_key = entity_hash_key or os.getenv("CLOAKLLM_ENTITY_HASH_KEY", "")
+
+        if effective_mode == "redact" or parsed_categories or entity_hashing:
+            if effective_hash_key:
+                # Custom hash key — create fresh Shield (don't cache by key)
+                config_kwargs = dict(_shield_config_kwargs)
+                config_kwargs["mode"] = effective_mode
+                config_kwargs["entity_hashing"] = entity_hashing
+                config_kwargs["entity_hash_key"] = effective_hash_key
+                if parsed_categories:
+                    config_kwargs["custom_llm_categories"] = parsed_categories
+                shield = Shield(config=ShieldConfig(**config_kwargs))
+            else:
+                shield = _get_cached_shield(
+                    mode=effective_mode,
+                    entity_hashing=entity_hashing,
+                    custom_llm_categories=parsed_categories or None,
+                )
         else:
             shield = _shield
 
@@ -162,13 +231,16 @@ def sanitize(
         reuse_id = ""
 
         if token_map_id and effective_mode != "redact":
-            entry = _TOKEN_MAPS.get(token_map_id)
-            if entry is None:
-                return {"error": f"Token map '{token_map_id}' not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
-            existing_map = entry["token_map"]
-            reuse_id = token_map_id
+            with _token_maps_lock:
+                entry = _TOKEN_MAPS.get(token_map_id)
+                if entry is None:
+                    return {"error": f"Token map not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
+                existing_map = entry["token_map"]
+                reuse_id = token_map_id
 
-        metadata_dict = json.loads(metadata) if metadata else None
+        metadata_dict, meta_err = _validate_metadata(metadata)
+        if meta_err:
+            return json.dumps(meta_err)
 
         sanitized, token_map = shield.sanitize(
             text, model=model or None, provider=provider or None,
@@ -190,8 +262,9 @@ def sanitize(
 
         if reuse_id:
             # Refresh timestamp to prevent TTL expiry during active conversations
-            _TOKEN_MAPS[reuse_id]["token_map"] = token_map
-            _TOKEN_MAPS[reuse_id]["created"] = time.time()
+            with _token_maps_lock:
+                _TOKEN_MAPS[reuse_id]["token_map"] = token_map
+                _TOKEN_MAPS[reuse_id]["created"] = time.time()
             map_id = reuse_id
         else:
             map_id = _store_token_map(token_map)
@@ -207,7 +280,7 @@ def sanitize(
             result["certificate"] = token_map.certificate.to_dict()
         return result
     except Exception as e:
-        logger.exception("sanitize tool failed")
+        logger.error("sanitize tool failed: %s: %s", type(e).__name__, e)
         return {"error": "Sanitization failed. Check server logs for details."}
 
 
@@ -240,6 +313,10 @@ def sanitize_batch(
         dict with sanitized texts, token_map_id, entity_count, and categories.
     """
     try:
+        err = _validate_batch_input(texts)
+        if err:
+            return json.dumps(err)
+
         # Parse custom LLM categories
         parsed_categories = []
         if custom_llm_categories:
@@ -251,19 +328,23 @@ def sanitize_batch(
                 return {"error": "custom_llm_categories must be valid JSON."}
 
         effective_mode = mode if mode in ("tokenize", "redact") else "tokenize"
+        effective_hash_key = entity_hash_key or os.getenv("CLOAKLLM_ENTITY_HASH_KEY", "")
 
         if parsed_categories or effective_mode == "redact" or entity_hashing:
-            config_kwargs = dict(
-                mode=effective_mode,
-                audit_enabled=_shield.config.audit_enabled,
-                log_dir=_shield.config.log_dir,
-                log_original_values=False,
-                entity_hashing=entity_hashing,
-                entity_hash_key=entity_hash_key,
-            )
-            if parsed_categories:
-                config_kwargs["custom_llm_categories"] = parsed_categories
-            shield = Shield(config=ShieldConfig(**config_kwargs))
+            if effective_hash_key:
+                config_kwargs = dict(_shield_config_kwargs)
+                config_kwargs["mode"] = effective_mode
+                config_kwargs["entity_hashing"] = entity_hashing
+                config_kwargs["entity_hash_key"] = effective_hash_key
+                if parsed_categories:
+                    config_kwargs["custom_llm_categories"] = parsed_categories
+                shield = Shield(config=ShieldConfig(**config_kwargs))
+            else:
+                shield = _get_cached_shield(
+                    mode=effective_mode,
+                    entity_hashing=entity_hashing,
+                    custom_llm_categories=parsed_categories or None,
+                )
         else:
             shield = _shield
 
@@ -271,13 +352,16 @@ def sanitize_batch(
         reuse_id = ""
 
         if token_map_id and effective_mode != "redact":
-            entry = _TOKEN_MAPS.get(token_map_id)
-            if entry is None:
-                return {"error": f"Token map '{token_map_id}' not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
-            existing_map = entry["token_map"]
-            reuse_id = token_map_id
+            with _token_maps_lock:
+                entry = _TOKEN_MAPS.get(token_map_id)
+                if entry is None:
+                    return {"error": f"Token map not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
+                existing_map = entry["token_map"]
+                reuse_id = token_map_id
 
-        metadata_dict = json.loads(metadata) if metadata else None
+        metadata_dict, meta_err = _validate_metadata(metadata)
+        if meta_err:
+            return json.dumps(meta_err)
 
         sanitized_texts, token_map = shield.sanitize_batch(
             texts, model=model or None, provider=provider or None,
@@ -298,8 +382,9 @@ def sanitize_batch(
             return result
 
         if reuse_id:
-            _TOKEN_MAPS[reuse_id]["token_map"] = token_map
-            _TOKEN_MAPS[reuse_id]["created"] = time.time()
+            with _token_maps_lock:
+                _TOKEN_MAPS[reuse_id]["token_map"] = token_map
+                _TOKEN_MAPS[reuse_id]["created"] = time.time()
             map_id = reuse_id
         else:
             map_id = _store_token_map(token_map)
@@ -315,7 +400,7 @@ def sanitize_batch(
             result["certificate"] = token_map.certificate.to_dict()
         return result
     except Exception as e:
-        logger.exception("sanitize_batch tool failed")
+        logger.error("sanitize_batch tool failed: %s: %s", type(e).__name__, e)
         return {"error": "Batch sanitization failed. Check server logs for details."}
 
 
@@ -340,17 +425,24 @@ def desanitize(
         dict with the restored text.
     """
     try:
-        entry = _TOKEN_MAPS.get(token_map_id)
-        if entry is None:
-            return {"error": f"Token map '{token_map_id}' not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
+        err = _validate_text_input(text)
+        if err:
+            return json.dumps(err)
 
-        metadata_dict = json.loads(metadata) if metadata else None
+        with _token_maps_lock:
+            entry = _TOKEN_MAPS.get(token_map_id)
+            if entry is None:
+                return {"error": f"Token map not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
+            token_map = entry["token_map"]
 
-        token_map = entry["token_map"]
+        metadata_dict, meta_err = _validate_metadata(metadata)
+        if meta_err:
+            return json.dumps(meta_err)
+
         restored = _shield.desanitize(text, token_map, metadata=metadata_dict)
         return {"restored": restored}
     except Exception as e:
-        logger.exception("desanitize tool failed")
+        logger.error("desanitize tool failed: %s: %s", type(e).__name__, e)
         return {"error": "Desanitization failed. Check server logs for details."}
 
 
@@ -375,22 +467,29 @@ def desanitize_batch(
         dict with list of restored texts.
     """
     try:
-        entry = _TOKEN_MAPS.get(token_map_id)
-        if entry is None:
-            return {"error": f"Token map '{token_map_id}' not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
+        err = _validate_batch_input(texts)
+        if err:
+            return json.dumps(err)
 
-        metadata_dict = json.loads(metadata) if metadata else None
+        with _token_maps_lock:
+            entry = _TOKEN_MAPS.get(token_map_id)
+            if entry is None:
+                return {"error": f"Token map not found or expired (TTL: {_MAP_TTL_SECONDS}s)."}
+            token_map = entry["token_map"]
 
-        token_map = entry["token_map"]
+        metadata_dict, meta_err = _validate_metadata(metadata)
+        if meta_err:
+            return json.dumps(meta_err)
+
         restored = _shield.desanitize_batch(texts, token_map, metadata=metadata_dict)
         return {"restored": restored}
     except Exception as e:
-        logger.exception("desanitize_batch tool failed")
+        logger.error("desanitize_batch tool failed: %s: %s", type(e).__name__, e)
         return {"error": "Batch desanitization failed. Check server logs for details."}
 
 
 @mcp.tool()
-def analyze(text: str, custom_llm_categories: str = "") -> dict:
+def analyze(text: str, custom_llm_categories: str = "", include_text: bool = False) -> dict:
     """
     Analyze text for PII without cloaking.
 
@@ -399,11 +498,16 @@ def analyze(text: str, custom_llm_categories: str = "") -> dict:
 
     Args:
         text: The text to analyze for PII.
+        include_text: If True, include the matched PII text in each entity. Defaults to False.
 
     Returns:
         dict with entity_count and list of detected entities.
     """
     try:
+        err = _validate_text_input(text)
+        if err:
+            return json.dumps(err)
+
         # Parse custom LLM categories
         parsed_categories = []
         if custom_llm_categories:
@@ -415,37 +519,35 @@ def analyze(text: str, custom_llm_categories: str = "") -> dict:
                 return {"error": "custom_llm_categories must be valid JSON."}
 
         if parsed_categories:
-            shield = Shield(config=ShieldConfig(
-                custom_llm_categories=parsed_categories,
-                audit_enabled=_shield.config.audit_enabled,
-                log_dir=_shield.config.log_dir,
-                log_original_values=False,
-            ))
+            shield = _get_cached_shield(custom_llm_categories=parsed_categories)
         else:
             shield = _shield
 
         result = shield.analyze(text)
+        entities = []
+        for e in result["entities"]:
+            entity_info = {
+                "category": e["category"],
+                "start": e["start"],
+                "end": e["end"],
+                "confidence": e["confidence"],
+                "source": e["source"],
+            }
+            if include_text:
+                entity_info["text"] = e["text"]
+            entities.append(entity_info)
+
         return {
             "entity_count": result["entity_count"],
-            "entities": [
-                {
-                    "text": e["text"],
-                    "category": e["category"],
-                    "start": e["start"],
-                    "end": e["end"],
-                    "confidence": e["confidence"],
-                    "source": e["source"],
-                }
-                for e in result["entities"]
-            ],
+            "entities": entities,
         }
     except Exception as e:
-        logger.exception("analyze tool failed")
+        logger.error("analyze tool failed: %s: %s", type(e).__name__, e)
         return {"error": "Analysis failed. Check server logs for details."}
 
 
 @mcp.tool()
-def analyze_batch(texts: list[str], custom_llm_categories: str = "") -> dict:
+def analyze_batch(texts: list[str], custom_llm_categories: str = "", include_text: bool = False) -> dict:
     """
     Analyze multiple texts for PII without cloaking.
 
@@ -455,11 +557,16 @@ def analyze_batch(texts: list[str], custom_llm_categories: str = "") -> dict:
     Args:
         texts: List of texts to analyze for PII.
         custom_llm_categories: Optional JSON array of [name, description] pairs.
+        include_text: If True, include the matched PII text in each entity. Defaults to False.
 
     Returns:
         dict with results per text and total entity count.
     """
     try:
+        err = _validate_batch_input(texts)
+        if err:
+            return json.dumps(err)
+
         # Parse custom LLM categories
         parsed_categories = []
         if custom_llm_categories:
@@ -471,12 +578,7 @@ def analyze_batch(texts: list[str], custom_llm_categories: str = "") -> dict:
                 return {"error": "custom_llm_categories must be valid JSON."}
 
         if parsed_categories:
-            shield = Shield(config=ShieldConfig(
-                custom_llm_categories=parsed_categories,
-                audit_enabled=_shield.config.audit_enabled,
-                log_dir=_shield.config.log_dir,
-                log_original_values=False,
-            ))
+            shield = _get_cached_shield(custom_llm_categories=parsed_categories)
         else:
             shield = _shield
 
@@ -485,19 +587,22 @@ def analyze_batch(texts: list[str], custom_llm_categories: str = "") -> dict:
         for text in texts:
             result = shield.analyze(text)
             total_count += result["entity_count"]
+            entities = []
+            for e in result["entities"]:
+                entity_info = {
+                    "category": e["category"],
+                    "start": e["start"],
+                    "end": e["end"],
+                    "confidence": e["confidence"],
+                    "source": e["source"],
+                }
+                if include_text:
+                    entity_info["text"] = e["text"]
+                entities.append(entity_info)
+
             results.append({
                 "entity_count": result["entity_count"],
-                "entities": [
-                    {
-                        "text": e["text"],
-                        "category": e["category"],
-                        "start": e["start"],
-                        "end": e["end"],
-                        "confidence": e["confidence"],
-                        "source": e["source"],
-                    }
-                    for e in result["entities"]
-                ],
+                "entities": entities,
             })
 
         return {
@@ -505,7 +610,7 @@ def analyze_batch(texts: list[str], custom_llm_categories: str = "") -> dict:
             "total_entity_count": total_count,
         }
     except Exception as e:
-        logger.exception("analyze_batch tool failed")
+        logger.error("analyze_batch tool failed: %s: %s", type(e).__name__, e)
         return {"error": "Batch analysis failed. Check server logs for details."}
 
 
