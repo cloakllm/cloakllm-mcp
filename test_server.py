@@ -41,7 +41,7 @@ sys.modules["mcp.server.fastmcp"] = mcp_fastmcp_mock
 os.environ["CLOAKLLM_AUDIT_ENABLED"] = "false"
 os.environ["CLOAKLLM_LOG_DIR"] = tempfile.mkdtemp()
 
-from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, _TOKEN_MAPS
+from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, analyze_context_risk, _TOKEN_MAPS
 
 
 class TestSanitize:
@@ -374,3 +374,72 @@ class TestDesanitizeMetadata:
         )
         assert "error" not in des
         assert des["restored"] == "Email john@acme.com"
+
+
+class TestAnalyzeContextRisk:
+
+    def test_low_risk_no_tokens(self):
+        """Text without tokens should have low risk."""
+        result = analyze_context_risk("The weather is nice today.")
+        assert "error" not in result
+        assert result["risk_level"] == "low"
+        assert result["risk_score"] == 0.0
+        assert result["token_density"] == 0.0
+
+    def test_high_risk_descriptors_near_tokens(self):
+        """Identifying descriptors near tokens should increase risk."""
+        text = "The CEO of [ORG_0], who founded [ORG_1] in 2003, lives in [GPE_0]"
+        result = analyze_context_risk(text)
+        assert "error" not in result
+        assert result["identifying_descriptors"] >= 1
+        assert result["risk_score"] > 0
+        assert len(result["warnings"]) > 0
+
+    def test_relationship_edges(self):
+        """Relationship phrases connecting tokens should be detected."""
+        text = "[PERSON_0] works at [ORG_0] and lives in [GPE_0]"
+        result = analyze_context_risk(text)
+        assert "error" not in result
+        assert result["relationship_edges"] >= 1
+
+    def test_empty_text(self):
+        """Empty text should return zero risk."""
+        result = analyze_context_risk("")
+        assert "error" not in result
+        assert result["risk_level"] == "low"
+        assert result["risk_score"] == 0.0
+
+    def test_token_density(self):
+        """Token density should be calculated correctly."""
+        text = "[EMAIL_0] [PERSON_0] hello world"
+        result = analyze_context_risk(text)
+        assert "error" not in result
+        assert result["token_density"] == 0.5  # 2 tokens / 4 words
+
+    def test_redacted_tokens_detected(self):
+        """REDACTED tokens should also be detected."""
+        text = "[EMAIL_REDACTED] [PERSON_REDACTED] hello world"
+        result = analyze_context_risk(text)
+        assert "error" not in result
+        assert result["token_density"] == 0.5
+
+    def test_result_fields(self):
+        """Result should contain all expected fields."""
+        result = analyze_context_risk("Hello [EMAIL_0]")
+        assert "error" not in result
+        assert "token_density" in result
+        assert "identifying_descriptors" in result
+        assert "relationship_edges" in result
+        assert "risk_score" in result
+        assert "risk_level" in result
+        assert "warnings" in result
+        assert result["risk_level"] in ("low", "medium", "high")
+
+    def test_sanitize_then_analyze_risk(self):
+        """End-to-end: sanitize text, then analyze the sanitized output for risk."""
+        san = sanitize("The CEO of Acme Corp, john@acme.com, founded it in 2003")
+        assert "error" not in san
+        risk = analyze_context_risk(san["sanitized"])
+        assert "error" not in risk
+        # Should detect some risk from the context
+        assert isinstance(risk["risk_score"], float)

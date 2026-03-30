@@ -5,6 +5,14 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-03-30
+
+### Added
+
+- **`analyze_context_risk` tool** — analyze sanitized text for context-based PII leakage risk
+  - Returns token density, identifying descriptors, relationship edges, risk score/level, and warnings
+  - Server now exposes 7 MCP tools (was 6)
+
 ## [0.4.0] - 2026-03-23
 
 ### Added

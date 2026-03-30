@@ -1,15 +1,16 @@
 """
 CloakLLM MCP Server.
 
-Exposes CloakLLM's Python SDK as 6 MCP tools for Claude Desktop and other
+Exposes CloakLLM's Python SDK as 7 MCP tools for Claude Desktop and other
 MCP-compatible clients:
 
-  - sanitize          — Detect & cloak PII, return sanitized text + token map ID
-  - sanitize_batch    — Detect & cloak PII in multiple texts with a shared token map
-  - desanitize        — Restore original values using a token map ID
-  - desanitize_batch  — Restore original values in multiple texts using a token map ID
-  - analyze           — Detect PII without cloaking (pure analysis)
-  - analyze_batch     — Detect PII in multiple texts without cloaking
+  - sanitize               — Detect & cloak PII, return sanitized text + token map ID
+  - sanitize_batch         — Detect & cloak PII in multiple texts with a shared token map
+  - desanitize             — Restore original values using a token map ID
+  - desanitize_batch       — Restore original values in multiple texts using a token map ID
+  - analyze                — Detect PII without cloaking (pure analysis)
+  - analyze_batch          — Detect PII in multiple texts without cloaking
+  - analyze_context_risk   — Analyze sanitized text for context-based PII leakage risk
 
 Run:
   python -m mcp run server.py
@@ -29,6 +30,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from cloakllm import Shield, ShieldConfig
+from cloakllm.context_analyzer import ContextAnalyzer
 
 logger = logging.getLogger("cloakllm.mcp")
 
@@ -612,6 +614,39 @@ def analyze_batch(texts: list[str], custom_llm_categories: str = "", include_tex
     except Exception as e:
         logger.error("analyze_batch tool failed: %s: %s", type(e).__name__, e)
         return {"error": "Batch analysis failed. Check server logs for details."}
+
+
+@mcp.tool()
+def analyze_context_risk(sanitized_text: str) -> dict:
+    """
+    Analyze sanitized text for context-based PII leakage risk.
+
+    Even after tokenization, surrounding context (e.g., "The CEO of [ORG_0]
+    who founded it in 2003") can reveal identity. This tool scores that risk.
+
+    Three signals are analyzed:
+    - Token density: ratio of tokens to total words
+    - Identifying descriptors: words like "CEO", "founder" near tokens
+    - Relationship edges: phrases like "works at" connecting two tokens
+
+    Args:
+        sanitized_text: Text containing [CATEGORY_N] tokens (output of sanitize).
+
+    Returns:
+        dict with token_density, identifying_descriptors, relationship_edges,
+        risk_score (0-1), risk_level (low/medium/high), and warnings.
+    """
+    try:
+        err = _validate_text_input(sanitized_text)
+        if err:
+            return json.dumps(err)
+
+        analyzer = ContextAnalyzer()
+        result = analyzer.analyze(sanitized_text)
+        return result.to_dict()
+    except Exception as e:
+        logger.error("analyze_context_risk tool failed: %s: %s", type(e).__name__, e)
+        return {"error": "Context risk analysis failed. Check server logs for details."}
 
 
 # ── Entry point ──────────────────────────────────────────────────
