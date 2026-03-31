@@ -5,6 +5,13 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-03-31
+
+### Changed
+
+- Version bump to sync with cloakllm v0.5.1 (Normalized Token Standard)
+- Dependency updated to `cloakllm>=0.5.1`
+
 ## [0.5.0] - 2026-03-30
 
 ### Added
