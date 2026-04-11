@@ -2,6 +2,13 @@
 
 MCP server that wraps CloakLLM's Python SDK as tools for Claude Desktop and other MCP-compatible clients.
 
+> **Important: MCP does not protect your initial prompt.**
+> MCP tools are called *by the LLM* — your prompt is sent to the LLM provider first, then the LLM decides to invoke tools. This means the raw prompt (including any PII) reaches the provider before CloakLLM can sanitize it. The MCP server is useful for sanitizing data that the LLM processes *during* a conversation (documents, files, tool outputs), but it **cannot** prevent your prompt from reaching the provider.
+>
+> To protect prompts before they leave your infrastructure, use the **SDK middleware** instead:
+> - Python: `enable_openai(client)` or `cloakllm.enable()` (LiteLLM)
+> - JavaScript: `cloakllm.enable(client)`
+
 ## Tools
 
 | Tool | Description |
