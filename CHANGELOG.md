@@ -5,6 +5,17 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-04-16
+
+### Changed
+
+- Version bump to sync with cloakllm v0.6.0 (Article 12 Compliance Mode + Enterprise Key Management)
+- Dependency updated to `cloakllm>=0.6.0`
+
+### Notes
+
+- All compliance-mode features are accessible from MCP via the underlying `cloakllm` SDK call paths (no new MCP tools required for v0.6).
+
 ## [0.5.2] - 2026-04-06
 
 ### Changed
