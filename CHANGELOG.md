@@ -5,6 +5,18 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-04-16
+
+### Changed
+
+- **B4 (security):** MCP server now defaults `compliance_mode="eu_ai_act_article12"`. The Article 12 invariant guard now fires on every audit write through the MCP path. Operators who require the old behavior can set `CLOAKLLM_COMPLIANCE_MODE=` (empty) or `=off`.
+- **H6:** Dependency floor raised to `cloakllm>=0.6.1,<0.7.0` and `mcp[cli]>=1.0.0,<2.0.0` (capped). Pulls in all v0.6.1 security fixes.
+- **F4:** internal `shield.analyze()` calls updated to pass `redact_values=` explicitly so the v0.6.1 deprecation warning does not fire from MCP code paths.
+
+### Notes
+
+- The B3 always-on audit schema validator from `cloakllm` 0.6.1 applies to all MCP audit writes too. If you were relying on passing arbitrary `metadata` keys through MCP tool calls, those calls now fail fast with a clear error.
+
 ## [0.6.0] - 2026-04-16
 
 ### Changed

@@ -6,6 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+# v0.6.1 H7: least-privilege defaults + cancel-on-superseding-push.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest

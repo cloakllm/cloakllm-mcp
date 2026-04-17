@@ -56,6 +56,20 @@ _shield_config_kwargs = dict(
     log_dir=os.getenv("CLOAKLLM_LOG_DIR", "./cloakllm_audit"),
 )
 
+# v0.6.1 (B4): MCP defaults to Article 12 compliance mode. The MCP layer is the
+# layer most likely to receive untrusted input, so it should be the strictest
+# deployment surface. Operators can opt out by setting CLOAKLLM_COMPLIANCE_MODE
+# to an empty string or "off".
+_compliance_mode_env = os.getenv("CLOAKLLM_COMPLIANCE_MODE", "eu_ai_act_article12")
+if _compliance_mode_env and _compliance_mode_env.lower() not in ("off", "none", "false"):
+    _shield_config_kwargs["compliance_mode"] = _compliance_mode_env
+_retention_hint_env = os.getenv("CLOAKLLM_RETENTION_HINT_DAYS", "")
+if _retention_hint_env:
+    try:
+        _shield_config_kwargs["retention_hint_days"] = int(_retention_hint_env)
+    except ValueError:
+        pass  # ShieldConfig validates; keep default 180
+
 # Attestation: if signing key path is set, load the keypair
 _signing_key_path = os.getenv("CLOAKLLM_SIGNING_KEY_PATH", "")
 if _signing_key_path:
@@ -525,7 +539,7 @@ def analyze(text: str, custom_llm_categories: str = "", include_text: bool = Fal
         else:
             shield = _shield
 
-        result = shield.analyze(text)
+        result = shield.analyze(text, redact_values=not include_text)
         entities = []
         for e in result["entities"]:
             entity_info = {
@@ -587,7 +601,7 @@ def analyze_batch(texts: list[str], custom_llm_categories: str = "", include_tex
         results = []
         total_count = 0
         for text in texts:
-            result = shield.analyze(text)
+            result = shield.analyze(text, redact_values=not include_text)
             total_count += result["entity_count"]
             entities = []
             for e in result["entities"]:

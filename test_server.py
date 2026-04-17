@@ -41,7 +41,18 @@ sys.modules["mcp.server.fastmcp"] = mcp_fastmcp_mock
 os.environ["CLOAKLLM_AUDIT_ENABLED"] = "false"
 os.environ["CLOAKLLM_LOG_DIR"] = tempfile.mkdtemp()
 
-from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, analyze_context_risk, _TOKEN_MAPS
+from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, analyze_context_risk, _TOKEN_MAPS, _shield
+
+
+# v0.6.1 (B4): MCP defaults to Article 12 compliance mode unless overridden
+def test_mcp_defaults_to_compliance_mode_eu_ai_act_article12():
+    """Without CLOAKLLM_COMPLIANCE_MODE set, the global Shield must default
+    to compliance_mode='eu_ai_act_article12' so the runtime invariant guard
+    fires on every audit write."""
+    assert _shield.config.compliance_mode == "eu_ai_act_article12", (
+        f"MCP default compliance_mode should be 'eu_ai_act_article12', "
+        f"got {_shield.config.compliance_mode!r}. This is the v0.6.1 B4 invariant."
+    )
 
 
 class TestSanitize:
