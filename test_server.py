@@ -13,6 +13,8 @@ import tempfile
 import types
 from unittest.mock import MagicMock
 
+import pytest
+
 # --- Mock the mcp package before importing server ---
 mcp_mock = types.ModuleType("mcp")
 mcp_server_mock = types.ModuleType("mcp.server")
@@ -41,7 +43,7 @@ sys.modules["mcp.server.fastmcp"] = mcp_fastmcp_mock
 os.environ["CLOAKLLM_AUDIT_ENABLED"] = "false"
 os.environ["CLOAKLLM_LOG_DIR"] = tempfile.mkdtemp()
 
-from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, analyze_context_risk, _TOKEN_MAPS, _shield
+from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, analyze_context_risk, _TOKEN_MAPS, _shield, _resolve_compliance_mode
 
 
 # v0.6.1 (B4): MCP defaults to Article 12 compliance mode unless overridden
@@ -53,6 +55,53 @@ def test_mcp_defaults_to_compliance_mode_eu_ai_act_article12():
         f"MCP default compliance_mode should be 'eu_ai_act_article12', "
         f"got {_shield.config.compliance_mode!r}. This is the v0.6.1 B4 invariant."
     )
+
+
+# v0.6.2 (I1) hotfix: documented opt-out paths must not crash the server.
+# Tests target the pure helper `_resolve_compliance_mode` so we don't have to
+# reload the server module (which disrupts other tests' module-level refs).
+# We also do an end-to-end smoke test by constructing ShieldConfig directly
+# with the resolved value to confirm the validator accepts it.
+
+from cloakllm import ShieldConfig
+
+class TestComplianceModeOptOut:
+    """Each documented opt-out value must yield None and not crash ShieldConfig."""
+
+    def test_resolve_off(self):
+        assert _resolve_compliance_mode("off") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode("off"))  # no raise
+
+    def test_resolve_OFF_uppercase(self):
+        assert _resolve_compliance_mode("OFF") is None  # case-insensitive
+
+    def test_resolve_empty_string(self):
+        assert _resolve_compliance_mode("") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode(""))
+
+    def test_resolve_none_string(self):
+        assert _resolve_compliance_mode("none") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode("none"))
+
+    def test_resolve_false_string(self):
+        assert _resolve_compliance_mode("false") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode("false"))
+
+    def test_resolve_None_value(self):
+        assert _resolve_compliance_mode(None) is None
+
+    def test_resolve_eu_ai_act_article12_passes_through(self):
+        assert _resolve_compliance_mode("eu_ai_act_article12") == "eu_ai_act_article12"
+        cfg = ShieldConfig(compliance_mode=_resolve_compliance_mode("eu_ai_act_article12"))
+        assert cfg.compliance_mode == "eu_ai_act_article12"
+
+    def test_resolve_unknown_value_passed_through_for_validator_to_reject(self):
+        # Helper does not validate — that's ShieldConfig's job.
+        # An unknown value should be passed through unchanged so the user
+        # gets a clear ValueError from ShieldConfig.__post_init__.
+        assert _resolve_compliance_mode("bogus_mode") == "bogus_mode"
+        with pytest.raises(ValueError, match="Invalid compliance_mode"):
+            ShieldConfig(compliance_mode=_resolve_compliance_mode("bogus_mode"))
 
 
 class TestSanitize:

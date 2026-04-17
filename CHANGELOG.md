@@ -5,6 +5,17 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-04-17
+
+### Fixed
+
+- **I1 (critical) — `CLOAKLLM_COMPLIANCE_MODE` opt-out crashed the server.** v0.6.1 documented `=off` / `=""` / `=none` / `=false` as the way to disable compliance mode, but the implementation accidentally let `ShieldConfig`'s `default_factory` read the same env var directly, causing `__post_init__` to reject the value and the server to crash on import. The kwargs builder now always passes `compliance_mode` explicitly so the env value never reaches the default_factory unfiltered.
+- 5 new tests cover the four documented opt-out values and the default-on path.
+
+### Changed
+
+- Bumped `cloakllm>=0.6.2,<0.7.0` to ensure I1 fix is present.
+
 ## [0.6.1] - 2026-04-16
 
 ### Changed

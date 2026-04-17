@@ -59,10 +59,27 @@ _shield_config_kwargs = dict(
 # v0.6.1 (B4): MCP defaults to Article 12 compliance mode. The MCP layer is the
 # layer most likely to receive untrusted input, so it should be the strictest
 # deployment surface. Operators can opt out by setting CLOAKLLM_COMPLIANCE_MODE
-# to an empty string or "off".
-_compliance_mode_env = os.getenv("CLOAKLLM_COMPLIANCE_MODE", "eu_ai_act_article12")
-if _compliance_mode_env and _compliance_mode_env.lower() not in ("off", "none", "false"):
-    _shield_config_kwargs["compliance_mode"] = _compliance_mode_env
+# to an empty string, "off", "none", or "false".
+#
+# v0.6.2 (I1) hotfix: ALWAYS set compliance_mode explicitly in kwargs (helper
+# extracted for testability). Otherwise ShieldConfig.default_factory reads
+# CLOAKLLM_COMPLIANCE_MODE from the environment directly and __post_init__
+# rejects "off"/"none"/"false"/"" as invalid values, crashing the server on
+# the documented opt-out paths.
+def _resolve_compliance_mode(env_value):
+    """Map a CLOAKLLM_COMPLIANCE_MODE env value to the validated ShieldConfig
+    field value. None / empty / "off" / "none" / "false" all opt out and
+    return None. Any other non-empty value is passed through unchanged
+    (ShieldConfig.__post_init__ does the final validation)."""
+    if not env_value:
+        return None
+    if env_value.lower() in ("off", "none", "false"):
+        return None
+    return env_value
+
+_shield_config_kwargs["compliance_mode"] = _resolve_compliance_mode(
+    os.getenv("CLOAKLLM_COMPLIANCE_MODE", "eu_ai_act_article12")
+)
 _retention_hint_env = os.getenv("CLOAKLLM_RETENTION_HINT_DAYS", "")
 if _retention_hint_env:
     try:
