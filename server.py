@@ -66,11 +66,35 @@ _shield_config_kwargs = dict(
 # CLOAKLLM_COMPLIANCE_MODE from the environment directly and __post_init__
 # rejects "off"/"none"/"false"/"" as invalid values, crashing the server on
 # the documented opt-out paths.
+import re as _re
+
+# v0.6.3 P0-3: zero-width characters (ZWSP, ZWNJ, ZWJ, BOM) are NOT stripped
+# by Python's str.strip() because their isspace() returns False. But these
+# routinely show up in env values pasted from Notepad-like editors that save
+# UTF-8 with BOM, or copied from web pages that contain zero-width markers.
+# Without explicit handling, "\ufeffoff" (BOM-prefixed) would not be opt-out
+# and ShieldConfig would crash — same I1-class bug NEW-4 was meant to close.
+_ENV_STRIP_RE = _re.compile(r'^[\s\u200b\u200c\u200d\ufeff]+|[\s\u200b\u200c\u200d\ufeff]+$')
+
+
 def _resolve_compliance_mode(env_value):
     """Map a CLOAKLLM_COMPLIANCE_MODE env value to the validated ShieldConfig
-    field value. None / empty / "off" / "none" / "false" all opt out and
-    return None. Any other non-empty value is passed through unchanged
-    (ShieldConfig.__post_init__ does the final validation)."""
+    field value. None / empty / whitespace / "off" / "none" / "false" all opt
+    out and return None. Any other non-empty value is passed through unchanged
+    (ShieldConfig.__post_init__ does the final validation).
+
+    v0.6.3 (P0-3): strip leading/trailing whitespace including ASCII spaces,
+    tabs, CRLF, NBSP, ideographic space, line/paragraph separators, AND
+    zero-width characters (ZWSP, ZWNJ, ZWJ, BOM). The latter four are NOT
+    handled by Python's str.strip() because their isspace() is False, but they
+    routinely appear in Docker ENV values pasted from text editors (e.g. UTF-8
+    BOM from Notepad). Without this regex, "\\ufeffoff" reaches ShieldConfig,
+    fails validation, and the MCP server crashes at import — re-opening the
+    I1-class bug class.
+    """
+    if env_value is None:
+        return None
+    env_value = _ENV_STRIP_RE.sub('', env_value)
     if not env_value:
         return None
     if env_value.lower() in ("off", "none", "false"):

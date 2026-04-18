@@ -29,8 +29,20 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # v0.6.3 P0-1: upgrade pip before audit (runner pip 25.2 has known CVEs)
+      - name: Upgrade pip
+        run: pip install --upgrade pip
+
       - name: Install dependencies
-        run: pip install -e . pytest
+        run: pip install -e . pytest pip-audit
 
       - name: Run tests
         run: pytest test_server.py -v
+
+      # v0.6.3 NEW-9: dep CVE audit is now BLOCKING for the MCP repo too.
+      # All exemptions tracked in SECURITY_WAIVERS.md.
+      - name: Audit dependencies (pip-audit)
+        run: |
+          pip-audit \
+            --ignore-vuln ECHO-ffe1-1d3c-d9bc \
+            --ignore-vuln ECHO-7db2-03aa-5591

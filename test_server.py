@@ -39,9 +39,14 @@ sys.modules["mcp"] = mcp_mock
 sys.modules["mcp.server"] = mcp_server_mock
 sys.modules["mcp.server.fastmcp"] = mcp_fastmcp_mock
 
-# Disable audit logging during tests
-os.environ["CLOAKLLM_AUDIT_ENABLED"] = "false"
-os.environ["CLOAKLLM_LOG_DIR"] = tempfile.mkdtemp()
+# v0.6.3 NEW-2: enable audit logging during tests (was disabled — same I2-class
+# bug that prompted the v0.6.2 hotfix). Without enabling audit, the always-on
+# B3 schema validator never executes in any MCP test, and the B4 invariant
+# ("MCP defaults to compliance mode AND writes audit entries") is only checked
+# for config presence, never for actual log writing.
+_TEST_LOG_DIR = tempfile.mkdtemp(prefix="cloakllm_mcp_test_audit_")
+os.environ["CLOAKLLM_AUDIT_ENABLED"] = "true"
+os.environ["CLOAKLLM_LOG_DIR"] = _TEST_LOG_DIR
 
 from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, analyze_context_risk, _TOKEN_MAPS, _shield, _resolve_compliance_mode
 
@@ -102,6 +107,60 @@ class TestComplianceModeOptOut:
         assert _resolve_compliance_mode("bogus_mode") == "bogus_mode"
         with pytest.raises(ValueError, match="Invalid compliance_mode"):
             ShieldConfig(compliance_mode=_resolve_compliance_mode("bogus_mode"))
+
+    # --- v0.6.3 NEW-4: whitespace handling (I1-class crash prevention) ---
+
+    def test_resolve_whitespace_only(self):
+        """' ' (space-only) opts out cleanly — was previously crashing."""
+        assert _resolve_compliance_mode(" ") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode(" "))  # no raise
+
+    def test_resolve_off_with_trailing_space(self):
+        """'off ' (Docker ENV trailing space) opts out cleanly."""
+        assert _resolve_compliance_mode("off ") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode("off "))
+
+    def test_resolve_off_with_crlf(self):
+        """'\\noff\\n' (CRLF leakage) opts out cleanly."""
+        assert _resolve_compliance_mode("\noff\n") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode("\noff\n"))
+
+    def test_resolve_explicit_value_with_surrounding_whitespace(self):
+        """'  eu_ai_act_article12  ' is stripped and accepted."""
+        assert _resolve_compliance_mode("  eu_ai_act_article12  ") == "eu_ai_act_article12"
+        cfg = ShieldConfig(compliance_mode=_resolve_compliance_mode("  eu_ai_act_article12  "))
+        assert cfg.compliance_mode == "eu_ai_act_article12"
+
+    # --- v0.6.3 P0-3: Unicode whitespace + zero-width strip ---
+    # str.strip() handles ASCII WS + NBSP + ideographic space + line/para sep.
+    # The regex stripper additionally handles ZWSP, ZWNJ, ZWJ, BOM — the
+    # bypass paths that would otherwise crash ShieldConfig at import.
+
+    def test_resolve_strips_nbsp(self):
+        """NBSP (\\u00a0) — already handled by str.strip but verify."""
+        assert _resolve_compliance_mode("\u00a0off\u00a0") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode("\u00a0off\u00a0"))
+
+    def test_resolve_strips_zero_width_space(self):
+        """ZWSP (\\u200b) — NOT stripped by str.strip(), must be handled by regex."""
+        assert _resolve_compliance_mode("\u200boff\u200b") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode("\u200boff\u200b"))
+
+    def test_resolve_strips_bom(self):
+        """BOM (\\ufeff) — common from UTF-8-with-BOM Notepad saves."""
+        assert _resolve_compliance_mode("\ufeffoff") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode("\ufeffoff"))
+
+    def test_resolve_strips_zwj(self):
+        """ZWJ (\\u200d) and ZWNJ (\\u200c) also handled."""
+        assert _resolve_compliance_mode("\u200doff\u200c") is None
+        ShieldConfig(compliance_mode=_resolve_compliance_mode("\u200doff\u200c"))
+
+    def test_resolve_bom_with_real_value(self):
+        """BOM-prefixed valid value: stripped, then accepted."""
+        assert _resolve_compliance_mode("\ufeffeu_ai_act_article12") == "eu_ai_act_article12"
+        cfg = ShieldConfig(compliance_mode=_resolve_compliance_mode("\ufeffeu_ai_act_article12"))
+        assert cfg.compliance_mode == "eu_ai_act_article12"
 
 
 class TestSanitize:
@@ -503,3 +562,57 @@ class TestAnalyzeContextRisk:
         assert "error" not in risk
         # Should detect some risk from the context
         assert isinstance(risk["risk_score"], float)
+
+
+# --- v0.6.3 NEW-2: verify the audit invariant the v0.6.1 B3+B4 release was meant to deliver ---
+# Without these tests, the always-on schema validator and the MCP compliance-mode
+# default both have ZERO end-to-end coverage on the MCP surface — same gap class
+# as I2 (missing JS audit schema test) that prompted v0.6.2 hotfix.
+
+import json as _json
+import glob as _glob
+import os as _os
+from cloakllm.audit import _validate_audit_entry_schema as _b3_validate
+
+
+def _read_audit_entries():
+    """Read all entries written by the global _shield to _TEST_LOG_DIR."""
+    entries = []
+    for path in sorted(_glob.glob(_os.path.join(_TEST_LOG_DIR, "audit_*.jsonl"))):
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entries.append(_json.loads(line))
+    return entries
+
+
+def test_mcp_writes_audit_entry_on_sanitize():
+    """A sanitize call MUST produce an audit entry on disk (NEW-2)."""
+    before = len(_read_audit_entries())
+    sanitize("Trace this: john@example.com")
+    after_entries = _read_audit_entries()
+    assert len(after_entries) > before, (
+        "MCP sanitize did not write an audit entry. "
+        "This is the I2-class gap NEW-2 was meant to close."
+    )
+    # Most recent entry should be a sanitize event with our fingerprint
+    sanitize_entries = [e for e in after_entries if e.get("event_type") == "sanitize"]
+    assert sanitize_entries, "No sanitize event_type entries found"
+
+
+def test_mcp_audit_entry_passes_b3_schema_validation():
+    """Every MCP-written audit entry MUST pass the always-on B3 validator (NEW-2)."""
+    sanitize("schema test: jane@x.com")
+    entries = _read_audit_entries()
+    assert entries, "no audit entries written"
+    for i, e in enumerate(entries):
+        # Strip the entry_hash field (added AFTER validation in audit.log()).
+        e_for_validation = {k: v for k, v in e.items() if k != "entry_hash"}
+        try:
+            _b3_validate(e_for_validation)
+        except Exception as exc:
+            raise AssertionError(
+                f"Audit entry {i} failed B3 schema validation: {exc}\n"
+                f"entry: {e_for_validation}"
+            ) from exc
