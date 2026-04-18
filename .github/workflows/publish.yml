@@ -24,7 +24,7 @@ jobs:
       url: https://pypi.org/p/cloakllm-mcp
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v5
