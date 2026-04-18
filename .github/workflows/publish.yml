@@ -5,9 +5,10 @@ on:
     tags: ["v*"]
 
 # v0.6.1 H7: scoped permissions + concurrency lock.
+# v0.6.3 I6: OIDC trusted publishing — no long-lived token in CI.
 permissions:
   contents: read
-  id-token: write  # set up for future OIDC trusted publishing
+  id-token: write  # required for OIDC trusted publishing to PyPI
 
 concurrency:
   group: publish-${{ github.ref }}
@@ -16,6 +17,11 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # v0.6.3 I6: GitHub Environment for extra protection on the release path.
+    # Configure at: Settings → Environments → New environment "pypi"
+    environment:
+      name: pypi
+      url: https://pypi.org/p/cloakllm-mcp
 
     steps:
       - uses: actions/checkout@v4
@@ -26,15 +32,22 @@ jobs:
           python-version: "3.12"
 
       - name: Install build tools
-        run: pip install build twine
+        run: pip install build
 
       - name: Build package
         run: python -m build
 
-      # TODO(v0.6.2): migrate to OIDC trusted publishing once the publisher
-      # is configured on PyPI for `cloakllm-mcp`.
-      - name: Publish to PyPI
-        run: twine upload dist/*
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      # v0.6.3 I6: OIDC trusted publishing replaces PYPI_API_TOKEN.
+      # Prerequisite (one-time): configure trusted publisher at
+      #   https://pypi.org/manage/project/cloakllm-mcp/settings/publishing/
+      # with:
+      #   Owner:        cloakllm
+      #   Repository:   cloakllm-mcp
+      #   Workflow:     publish.yml
+      #   Environment:  pypi
+      # See: https://docs.pypi.org/trusted-publishers/
+      - name: Publish to PyPI (OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+          print-hash: true
