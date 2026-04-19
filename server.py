@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -172,6 +173,68 @@ def _validate_batch_input(texts: list) -> dict | None:
     return None
 
 
+# v0.6.3 H8: PII patterns for metadata scanning. The MCP server is the trust
+# boundary between LLM clients (potentially untrusted) and the audit log. The
+# B3 schema validator catches structural issues (wrong types, oversized values,
+# deep nesting) but doesn't scan VALUES for PII content — so an LLM client
+# could ship `{"user_email": "alice@example.com"}` as metadata and the email
+# would land in the audit log alongside otherwise-clean entries.
+#
+# These are deliberately narrow patterns covering the highest-risk categories.
+# We don't run the full DetectionEngine here because (a) it would invoke
+# spaCy/LLM passes that are overkill for short metadata strings, and (b)
+# false positives in metadata are more user-visible than in body text. The
+# patterns target unambiguous PII formats that have no legitimate use as
+# metadata identifiers.
+_METADATA_PII_PATTERNS = [
+    ("EMAIL", re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")),
+    ("SSN", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    # Credit card: 13-19 digits, allowing dashes/spaces (Luhn check is too
+    # expensive for the metadata path; the pattern alone catches 99% of cases)
+    ("CREDIT_CARD", re.compile(r"\b(?:\d[ -]?){13,19}\b")),
+    # IBAN: country code + check digits + 11-30 alphanumeric
+    ("IBAN", re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b")),
+    # JWT: three base64url-encoded segments separated by dots
+    ("JWT", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b")),
+]
+
+
+def _scan_metadata_for_pii(parsed: dict) -> str | None:
+    """v0.6.3 H8: Recursively scan metadata STRING VALUES for unambiguous PII
+    patterns. Returns a human-readable error string on first match, or None
+    if the metadata is clean.
+
+    This is the MCP-layer enforcement of the audit-log no-PII invariant —
+    closer to the trust boundary than the audit-layer B3 validator (which
+    only sees the data once it's been packed for write).
+    """
+    def _walk(value, path: str) -> str | None:
+        if isinstance(value, str):
+            for category, pattern in _METADATA_PII_PATTERNS:
+                if pattern.search(value):
+                    return (
+                        f"Metadata{path} contains a value matching {category} "
+                        f"pattern. Audit logs must not contain PII; redact or "
+                        f"hash the value before passing it as metadata."
+                    )
+            return None
+        if isinstance(value, list):
+            for i, item in enumerate(value):
+                err = _walk(item, f"{path}[{i}]")
+                if err:
+                    return err
+            return None
+        if isinstance(value, dict):
+            for k, v in value.items():
+                err = _walk(v, f"{path}.{k}")
+                if err:
+                    return err
+            return None
+        return None  # non-string scalars are fine
+
+    return _walk(parsed, "")
+
+
 def _validate_metadata(metadata: str) -> tuple[dict | None, dict | None]:
     """Validate and parse metadata. Returns (parsed_dict_or_None, error_dict_or_None)."""
     if not metadata:
@@ -182,9 +245,14 @@ def _validate_metadata(metadata: str) -> tuple[dict | None, dict | None]:
         parsed = json.loads(metadata)
         if not isinstance(parsed, dict):
             return None, {"error": "Metadata must be a JSON object."}
-        return parsed, None
     except json.JSONDecodeError:
         return None, {"error": "Invalid metadata JSON."}
+    # v0.6.3 H8: PII scan. Reject before passing to shield so the LLM client
+    # gets a clear error instead of a silent compliance drift in the audit log.
+    pii_err = _scan_metadata_for_pii(parsed)
+    if pii_err:
+        return None, {"error": pii_err}
+    return parsed, None
 
 
 # ── Shield caching helper ────────────────────────────────────────

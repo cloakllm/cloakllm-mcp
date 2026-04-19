@@ -48,7 +48,7 @@ _TEST_LOG_DIR = tempfile.mkdtemp(prefix="cloakllm_mcp_test_audit_")
 os.environ["CLOAKLLM_AUDIT_ENABLED"] = "true"
 os.environ["CLOAKLLM_LOG_DIR"] = _TEST_LOG_DIR
 
-from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, analyze_context_risk, _TOKEN_MAPS, _shield, _resolve_compliance_mode
+from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, analyze_context_risk, _TOKEN_MAPS, _shield, _resolve_compliance_mode, _scan_metadata_for_pii, _validate_metadata
 
 
 # v0.6.1 (B4): MCP defaults to Article 12 compliance mode unless overridden
@@ -616,3 +616,87 @@ def test_mcp_audit_entry_passes_b3_schema_validation():
                 f"Audit entry {i} failed B3 schema validation: {exc}\n"
                 f"entry: {e_for_validation}"
             ) from exc
+
+# v0.6.3 H8 — MCP-layer PII scan in metadata before write to audit log.
+
+class TestMcpMetadataPiiScan:
+    """The MCP server is the trust boundary between LLM clients and the audit
+    log. _scan_metadata_for_pii rejects metadata containing unambiguous PII
+    patterns BEFORE it reaches shield.sanitize, so an LLM client that ships
+    `{"user_email": "alice@example.com"}` gets a clear error instead of a
+    silent compliance drift in the audit log."""
+
+    def test_clean_metadata_passes(self):
+        assert _scan_metadata_for_pii({"user_id": "u_12345", "trace_id": "abc"}) is None
+        assert _scan_metadata_for_pii({}) is None
+
+    def test_email_in_value_rejected(self):
+        err = _scan_metadata_for_pii({"reported_by": "alice@example.com"})
+        assert err is not None
+        assert "EMAIL" in err
+
+    def test_ssn_in_value_rejected(self):
+        err = _scan_metadata_for_pii({"customer_ref": "SSN: 123-45-6789"})
+        assert err is not None
+        assert "SSN" in err
+
+    def test_credit_card_in_value_rejected(self):
+        err = _scan_metadata_for_pii({"order_id": "card 4111-1111-1111-1111"})
+        assert err is not None
+        assert "CREDIT_CARD" in err
+
+    def test_iban_in_value_rejected(self):
+        err = _scan_metadata_for_pii({"transfer_ref": "DE89370400440532013000"})
+        assert err is not None
+        assert "IBAN" in err
+
+    def test_jwt_in_value_rejected(self):
+        # Realistic JWT-like string (not a real signed token)
+        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        err = _scan_metadata_for_pii({"auth": jwt})
+        assert err is not None
+        assert "JWT" in err
+
+    def test_pii_in_nested_dict_rejected(self):
+        err = _scan_metadata_for_pii({"user": {"profile": {"email": "alice@example.com"}}})
+        assert err is not None
+        assert "EMAIL" in err
+        # Path should point to the nested field
+        assert "user" in err and "profile" in err
+
+    def test_pii_in_list_rejected(self):
+        err = _scan_metadata_for_pii({"recipients": ["x@y.com", "ok"]})
+        assert err is not None
+        assert "EMAIL" in err
+
+    def test_non_string_scalars_pass(self):
+        assert _scan_metadata_for_pii({"count": 42, "active": True, "ratio": 0.5, "n": None}) is None
+
+    def test_validate_metadata_rejects_pii(self):
+        # End-to-end via the public _validate_metadata API.
+        parsed, err = _validate_metadata('{"reported_by": "alice@example.com"}')
+        assert parsed is None
+        assert err is not None
+        assert "EMAIL" in err["error"]
+
+    def test_validate_metadata_passes_clean(self):
+        parsed, err = _validate_metadata('{"trace_id": "abc-123"}')
+        assert err is None
+        assert parsed == {"trace_id": "abc-123"}
+
+    def test_sanitize_tool_rejects_pii_metadata(self):
+        # Integration: the public MCP tool surface returns the H8 error.
+        # Note: metadata-validation errors are returned as a JSON string
+        # (pre-existing pattern in server.py — not from H8). Other tool
+        # errors return dicts. Tests assert the actual shape.
+        import json as _json
+        result = sanitize(
+            text="hello world",
+            metadata='{"reported_by": "alice@example.com"}',
+        )
+        # When validation fails, sanitize returns a JSON string of the error dict.
+        assert isinstance(result, str), f"expected JSON-string error, got {type(result).__name__}"
+        parsed = _json.loads(result)
+        assert "error" in parsed
+        assert "EMAIL" in parsed["error"]
+
