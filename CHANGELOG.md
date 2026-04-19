@@ -5,6 +5,59 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-04-19
+
+MCP-side share of the cloakllm-py / cloakllm-js v0.6.3 security release.
+Floor bumped to `cloakllm>=0.6.3` so MCP installations inherit the full
+hardening surface.
+
+### Security — high severity
+
+- **H8 — MCP metadata PII scan.** New `_scan_metadata_for_pii` recursively
+  rejects metadata string values matching unambiguous PII patterns
+  (EMAIL, SSN, CREDIT_CARD, IBAN, JWT) before they reach the audit log.
+  Wired into `sanitize`, `sanitize_batch`, `desanitize`, `desanitize_batch`.
+- **G5 — `custom_llm_categories` prompt-injection scan.** New
+  `_validate_category_description` rejects descriptions matching prompt-
+  injection patterns ("ignore all previous instructions", ChatML markers,
+  Anthropic chat markers, oversized strings, embedded newlines) before
+  they flow into the Ollama detector system prompt.
+- **SEC-2 — Same scan applied to `analyze` and `analyze_batch`.** The G5
+  wiring was missed for the analyze tools in the initial pass; closed
+  the parity gap.
+- **SEC-4 — `model` and `provider` PII scan.** New `_validate_short_string`
+  rejects PII patterns + NUL bytes + oversized strings (>128 chars) in
+  these MCP tool params before they reach the audit logger. Closes a
+  silent no-PII-in-logs invariant violation: a client passing
+  `model="alice@example.com"` previously landed the email in the audit
+  log via the `model` field.
+
+### Test coverage
+
+- **NEW-2** — Re-enabled audit logging in MCP tests (was disabled,
+  same I2-class regression as v0.6.2). The B3 schema validator now
+  fires on every audit write during tests, not just the config-presence
+  check.
+- New tests for SEC-2 / SEC-4 / G5 / H8 (incl. end-to-end verification
+  via the MCP tool surface), plus regression coverage for B3 validator
+  on MCP-written entries.
+
+### Plumbing
+
+- **NEW-9** — `pip-audit` is CI-blocking. Tracked exceptions in
+  `CloakLLM/SECURITY_WAIVERS.md`.
+- **I6** — OIDC trusted publishing for PyPI; long-lived `PYPI_API_TOKEN`
+  removed.
+- **NEW-1** — `setuptools.build_meta` build-backend (was the invalid
+  `setuptools.backends.legacy:build` from a prior typo).
+
+### Dependency
+
+- `cloakllm` floor bumped to `>=0.6.3,<0.7.0` so MCP installs receive
+  the full v0.6.3 hardening surface (SSRF redirect close, sanitized_hash
+  oracle close, audit chain typed exceptions, audit file 0o600 perms,
+  etc.). Pinning to 0.6.2 explicitly is rejected by the resolver.
+
 ## [0.6.2] - 2026-04-17
 
 ### Fixed
