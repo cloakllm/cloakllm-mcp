@@ -5,6 +5,25 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4.post1] - 2026-04-24
+
+**Hotfix release for a ship-blocker found via clean-room install verification.**
+
+### Fixed
+
+- **FastMCP `description` → `instructions` kwarg rename.** A recent release
+  of the upstream `mcp[cli]` package renamed the FastMCP constructor's
+  `description` parameter to `instructions`. cloakllm-mcp's `server.py`
+  passed `description=...`, which now raises
+  `TypeError: FastMCP.__init__() got an unexpected keyword argument 'description'`
+  at import time on any fresh install. Switched to `instructions=`
+  (same semantic field, just renamed upstream).
+- **Test-suite blind spot:** the `_FakeFastMCP` mock in `test_server.py`
+  accepts `**kwargs`, so CI never exercised the real FastMCP constructor.
+  PEP 440 post-release bump (`0.6.4.post1`) so existing
+  `pip install cloakllm-mcp==0.6.4` users automatically pick up the fix.
+  No source-code or behavior change beyond the one-line kwarg rename.
+
 ## [0.6.4] - 2026-04-20
 
 Polish release — v0.6.4 round-up of items the v0.6.3 review pass parked.

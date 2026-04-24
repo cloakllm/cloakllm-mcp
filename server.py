@@ -64,9 +64,15 @@ def _log_tool_error(tool_name: str, exc: BaseException) -> None:
 
 # ── Server setup ─────────────────────────────────────────────────
 
+# v0.6.4.post1: FastMCP renamed `description` → `instructions` in a recent
+# mcp[cli] release. The old kwarg now raises TypeError at import time,
+# breaking every clean install of cloakllm-mcp 0.6.4 (and earlier 0.6.x).
+# Our test_server.py mock accepted **kwargs so CI never caught it. Switching
+# to `instructions=` for forward compatibility — same semantic field, just
+# renamed upstream.
 mcp = FastMCP(
     "CloakLLM",
-    description="PII cloaking and analysis for LLM prompts. "
+    instructions="PII cloaking and analysis for LLM prompts. "
     "Detects sensitive data (emails, names, SSNs, etc.), replaces with tokens, "
     "and restores originals in responses.",
 )
