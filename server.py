@@ -41,6 +41,27 @@ MAX_TOKEN_MAPS = 10_000       # Max stored token maps
 MAX_METADATA_LENGTH = 10_000  # Max metadata JSON length
 MAX_SHIELD_CACHE = 50         # Max cached Shield instances
 
+# v0.6.4 G13: when CLOAKLLM_DEBUG=1, exception messages (str(e)) are logged
+# alongside type(e).__name__ for diagnosis. Default off because exceptions
+# raised from the cloakllm-py engine could carry context that includes
+# fragments of input text — operator-controlled territory, but a default-off
+# opt-in is the conservative choice for the trust-boundary MCP layer.
+_CLOAKLLM_DEBUG = os.getenv("CLOAKLLM_DEBUG", "").lower() in ("1", "true", "yes")
+
+
+def _log_tool_error(tool_name: str, exc: BaseException) -> None:
+    """v0.6.4 G13: standardized exception logging for MCP tool handlers.
+
+    Always logs the exception type. Logs the full message ONLY when
+    CLOAKLLM_DEBUG=1 — defends server logs against accidental PII leakage
+    via exception text from downstream code paths we don't fully control.
+    """
+    if _CLOAKLLM_DEBUG:
+        logger.error("%s tool failed: %s: %s", tool_name, type(exc).__name__, exc)
+    else:
+        logger.error("%s tool failed: %s (set CLOAKLLM_DEBUG=1 for full message)",
+                     tool_name, type(exc).__name__)
+
 # ── Server setup ─────────────────────────────────────────────────
 
 mcp = FastMCP(
@@ -125,7 +146,14 @@ _shield = Shield(config=ShieldConfig(**_shield_config_kwargs))
 # This server is designed for single-user, single-client deployments (e.g., Claude Desktop).
 # Do NOT expose this server to multiple untrusted clients.
 
-_TOKEN_MAPS: dict[str, dict[str, Any]] = {}
+# v0.6.4 BUG-X (M11): use OrderedDict for O(1) LRU eviction. The previous
+# `min(_TOKEN_MAPS, key=lambda k: _TOKEN_MAPS[k]["created"])` was O(n) over
+# up to MAX_TOKEN_MAPS entries — a 10k-entry scan inside the lock on every
+# new map creation. OrderedDict.popitem(last=False) is O(1) and preserves
+# insertion order; we move-to-end on access (idle-refresh) so the front
+# is genuinely the oldest-untouched entry.
+from collections import OrderedDict
+_TOKEN_MAPS: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 _MAP_TTL_SECONDS = 3600  # 1 hour
 _token_maps_lock = threading.Lock()
 
@@ -142,13 +170,19 @@ def _cleanup_expired():
 
 
 def _store_token_map(token_map) -> str:
-    """Store a token map with TTL and return its ID."""
+    """Store a token map with TTL and return its ID.
+
+    v0.6.4: O(1) LRU eviction via OrderedDict.popitem(last=False) — was
+    O(n) min() scan over up to MAX_TOKEN_MAPS=10000 entries holding the
+    lock the whole time. New entries appended to the right; oldest gets
+    popped from the left when at capacity.
+    """
     with _token_maps_lock:
         _cleanup_expired()
-        # Evict oldest if at capacity
-        if len(_TOKEN_MAPS) >= MAX_TOKEN_MAPS:
-            oldest_key = min(_TOKEN_MAPS, key=lambda k: _TOKEN_MAPS[k]["created"])
-            del _TOKEN_MAPS[oldest_key]
+        # v0.6.4: O(1) eviction — popitem(last=False) removes the oldest
+        # (leftmost / least-recently-inserted) entry.
+        while len(_TOKEN_MAPS) >= MAX_TOKEN_MAPS:
+            _TOKEN_MAPS.popitem(last=False)
         map_id = str(uuid.uuid4())
         _TOKEN_MAPS[map_id] = {"token_map": token_map, "created": time.time()}
         return map_id
@@ -439,7 +473,7 @@ def sanitize(
     try:
         err = _validate_text_input(text)
         if err:
-            return json.dumps(err)
+            return err  # v0.6.4 BUG-4: dict, not JSON string
 
         # Use a separate shield instance if mode is "redact"
         effective_mode = mode if mode in ("tokenize", "redact") else "tokenize"
@@ -504,7 +538,7 @@ def sanitize(
 
         metadata_dict, meta_err = _validate_metadata(metadata)
         if meta_err:
-            return json.dumps(meta_err)
+            return meta_err  # v0.6.4 BUG-4: dict, not JSON string
 
         sanitized, token_map = shield.sanitize(
             text, model=model or None, provider=provider or None,
@@ -544,7 +578,7 @@ def sanitize(
             result["certificate"] = token_map.certificate.to_dict()
         return result
     except Exception as e:
-        logger.error("sanitize tool failed: %s: %s", type(e).__name__, e)
+        _log_tool_error("sanitize", e)
         return {"error": "Sanitization failed. Check server logs for details."}
 
 
@@ -579,7 +613,7 @@ def sanitize_batch(
     try:
         err = _validate_batch_input(texts)
         if err:
-            return json.dumps(err)
+            return err  # v0.6.4 BUG-4: dict, not JSON string
 
         # v0.6.3 SEC-4: model and provider PII scan — same as `sanitize`.
         for _name, _val in (("model", model), ("provider", provider)):
@@ -637,7 +671,7 @@ def sanitize_batch(
 
         metadata_dict, meta_err = _validate_metadata(metadata)
         if meta_err:
-            return json.dumps(meta_err)
+            return meta_err  # v0.6.4 BUG-4: dict, not JSON string
 
         sanitized_texts, token_map = shield.sanitize_batch(
             texts, model=model or None, provider=provider or None,
@@ -676,7 +710,7 @@ def sanitize_batch(
             result["certificate"] = token_map.certificate.to_dict()
         return result
     except Exception as e:
-        logger.error("sanitize_batch tool failed: %s: %s", type(e).__name__, e)
+        _log_tool_error("sanitize_batch", e)
         return {"error": "Batch sanitization failed. Check server logs for details."}
 
 
@@ -703,7 +737,7 @@ def desanitize(
     try:
         err = _validate_text_input(text)
         if err:
-            return json.dumps(err)
+            return err  # v0.6.4 BUG-4: dict, not JSON string
 
         with _token_maps_lock:
             entry = _TOKEN_MAPS.get(token_map_id)
@@ -713,12 +747,12 @@ def desanitize(
 
         metadata_dict, meta_err = _validate_metadata(metadata)
         if meta_err:
-            return json.dumps(meta_err)
+            return meta_err  # v0.6.4 BUG-4: dict, not JSON string
 
         restored = _shield.desanitize(text, token_map, metadata=metadata_dict)
         return {"restored": restored}
     except Exception as e:
-        logger.error("desanitize tool failed: %s: %s", type(e).__name__, e)
+        _log_tool_error("desanitize", e)
         return {"error": "Desanitization failed. Check server logs for details."}
 
 
@@ -745,7 +779,7 @@ def desanitize_batch(
     try:
         err = _validate_batch_input(texts)
         if err:
-            return json.dumps(err)
+            return err  # v0.6.4 BUG-4: dict, not JSON string
 
         with _token_maps_lock:
             entry = _TOKEN_MAPS.get(token_map_id)
@@ -755,12 +789,12 @@ def desanitize_batch(
 
         metadata_dict, meta_err = _validate_metadata(metadata)
         if meta_err:
-            return json.dumps(meta_err)
+            return meta_err  # v0.6.4 BUG-4: dict, not JSON string
 
         restored = _shield.desanitize_batch(texts, token_map, metadata=metadata_dict)
         return {"restored": restored}
     except Exception as e:
-        logger.error("desanitize_batch tool failed: %s: %s", type(e).__name__, e)
+        _log_tool_error("desanitize_batch", e)
         return {"error": "Batch desanitization failed. Check server logs for details."}
 
 
@@ -782,7 +816,7 @@ def analyze(text: str, custom_llm_categories: str = "", include_text: bool = Fal
     try:
         err = _validate_text_input(text)
         if err:
-            return json.dumps(err)
+            return err  # v0.6.4 BUG-4: dict, not JSON string
 
         # Parse custom LLM categories
         parsed_categories = []
@@ -828,7 +862,7 @@ def analyze(text: str, custom_llm_categories: str = "", include_text: bool = Fal
             "entities": entities,
         }
     except Exception as e:
-        logger.error("analyze tool failed: %s: %s", type(e).__name__, e)
+        _log_tool_error("analyze", e)
         return {"error": "Analysis failed. Check server logs for details."}
 
 
@@ -851,7 +885,7 @@ def analyze_batch(texts: list[str], custom_llm_categories: str = "", include_tex
     try:
         err = _validate_batch_input(texts)
         if err:
-            return json.dumps(err)
+            return err  # v0.6.4 BUG-4: dict, not JSON string
 
         # Parse custom LLM categories
         parsed_categories = []
@@ -901,7 +935,7 @@ def analyze_batch(texts: list[str], custom_llm_categories: str = "", include_tex
             "total_entity_count": total_count,
         }
     except Exception as e:
-        logger.error("analyze_batch tool failed: %s: %s", type(e).__name__, e)
+        _log_tool_error("analyze_batch", e)
         return {"error": "Batch analysis failed. Check server logs for details."}
 
 
@@ -928,13 +962,13 @@ def analyze_context_risk(sanitized_text: str) -> dict:
     try:
         err = _validate_text_input(sanitized_text)
         if err:
-            return json.dumps(err)
+            return err  # v0.6.4 BUG-4: dict, not JSON string
 
         analyzer = ContextAnalyzer()
         result = analyzer.analyze(sanitized_text)
         return result.to_dict()
     except Exception as e:
-        logger.error("analyze_context_risk tool failed: %s: %s", type(e).__name__, e)
+        _log_tool_error("analyze_context_risk", e)
         return {"error": "Context risk analysis failed. Check server logs for details."}
 
 

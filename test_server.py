@@ -690,18 +690,17 @@ class TestMcpMetadataPiiScan:
     def test_sanitize_tool_rejects_pii_metadata(self):
         # Integration: the public MCP tool surface returns the H8 error.
         # Note: metadata-validation errors are returned as a JSON string
-        # (pre-existing pattern in server.py — not from H8). Other tool
-        # errors return dicts. Tests assert the actual shape.
-        import json as _json
+        # v0.6.4 BUG-4: tool error returns are now dicts uniformly across all
+        # paths (was: validation errors returned json.dumps(err) strings while
+        # exception handlers returned dicts — caller-confusing). All paths now
+        # return {"error": "..."} dicts.
         result = sanitize(
             text="hello world",
             metadata='{"reported_by": "alice@example.com"}',
         )
-        # When validation fails, sanitize returns a JSON string of the error dict.
-        assert isinstance(result, str), f"expected JSON-string error, got {type(result).__name__}"
-        parsed = _json.loads(result)
-        assert "error" in parsed
-        assert "EMAIL" in parsed["error"]
+        assert isinstance(result, dict), f"expected dict error (BUG-4), got {type(result).__name__}"
+        assert "error" in result
+        assert "EMAIL" in result["error"]
 
 
 # v0.6.3 G5 — custom_llm_categories.description prompt-injection scan.

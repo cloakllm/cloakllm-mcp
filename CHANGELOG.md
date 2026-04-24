@@ -5,6 +5,41 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-04-20
+
+Polish release — v0.6.4 round-up of items the v0.6.3 review pass parked.
+Floor bumped to `cloakllm>=0.6.4` so MCP installs receive the new
+typed-exception, derived allow-list, and timing-safe hash compare.
+
+### Hardening
+
+- **G13 — Server log hygiene.** All seven MCP tool exception handlers
+  now log only `type(e).__name__` by default. Set `CLOAKLLM_DEBUG=1`
+  to opt back in to full message logging (`str(e)`). Defends server
+  logs against accidental PII leakage via cloakllm-py exception text.
+  New `_log_tool_error()` helper standardizes the call shape.
+
+### Correctness
+
+- **BUG-4 — MCP tool error returns standardized to dict.** Eleven
+  validation-error sites previously returned `json.dumps(err)` (a string)
+  while exception handlers returned dicts. Callers type-checking
+  `isinstance(result, dict)` would silently miss validation errors.
+  All paths now return `{"error": "..."}` dicts uniformly.
+
+### Performance
+
+- **MCP `_TOKEN_MAPS` O(1) eviction.** Switched backing dict to
+  `collections.OrderedDict` and replaced the
+  `min(_TOKEN_MAPS, key=lambda k: ...)` capacity-eviction (O(n) over
+  up to 10,000 entries inside the lock) with `popitem(last=False)`
+  (O(1)). Negligible for small deployments, meaningful for any MCP
+  server pushed near `MAX_TOKEN_MAPS`.
+
+### Dependency
+
+- `cloakllm` floor bumped to `>=0.6.4,<0.7.0`.
+
 ## [0.6.3] - 2026-04-19
 
 MCP-side share of the cloakllm-py / cloakllm-js v0.6.3 security release.
