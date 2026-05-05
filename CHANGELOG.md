@@ -5,6 +5,31 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] - 2026-04-24
+
+Drop-in safe from v0.6.4 / 0.6.4.post1. Floor bumped to
+`cloakllm>=0.6.5` so MCP installs receive the v0.6.5 cloakllm
+(which carries the `python-dotenv` CVE pin in published metadata).
+
+### CI / supply-chain hardening
+
+- **New install-smoke step in `ci.yml` — the lesson from v0.6.4.post1.**
+  Builds the wheel via `python -m build`, installs it into a fresh venv
+  AGAINST THE REAL upstream `mcp[cli]` package (no `_FakeFastMCP` mock),
+  and runs `import server` plus a 7-tool callable check. The v0.6.4
+  ship-blocker was that `mcp` renamed `FastMCP(description=...)` →
+  `instructions=` and our test mock silently accepted the old kwarg.
+  Every fresh install of cloakllm-mcp 0.6.4 crashed at import. This
+  step exercises the real upstream API surface so the next
+  upstream-rename-class regression surfaces in CI before we tag.
+
+### Dependency
+
+- `cloakllm` floor bumped to `>=0.6.5,<0.7.0`. v0.6.5 of cloakllm
+  republishes with the `python-dotenv >= 1.2.2` pin baked into wheel
+  metadata, which transitively fixes CVE-2026-28684 for any MCP
+  installation.
+
 ## [0.6.4.post1] - 2026-04-24
 
 **Hotfix release for a ship-blocker found via clean-room install verification.**

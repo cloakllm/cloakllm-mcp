@@ -46,3 +46,35 @@ jobs:
           pip-audit \
             --ignore-vuln ECHO-ffe1-1d3c-d9bc \
             --ignore-vuln ECHO-7db2-03aa-5591
+
+      # v0.6.5: Build the wheel and import it from a fresh venv against the
+      # REAL upstream `mcp[cli]` package. This catches the class of regression
+      # that broke v0.6.4 — when upstream `mcp` renamed
+      # `FastMCP(description=...)` → `instructions=`, our `test_server.py`
+      # mock (`_FakeFastMCP` accepting `**kwargs`) silently swallowed the
+      # change and CI stayed green. Every fresh install of cloakllm-mcp 0.6.4
+      # then crashed at import — required a 0.6.4.post1 hotfix.
+      #
+      # This step builds the wheel, installs it into a clean venv WITHOUT
+      # any test mocks, and runs `import server`. If the upstream API drifts
+      # again, the import-time TypeError surfaces here BEFORE we tag a release.
+      - name: Build wheel + import-smoke against real upstream mcp[cli]
+        run: |
+          pip install --upgrade build
+          python -m build --wheel
+          python -m venv /tmp/wheel-test-venv
+          /tmp/wheel-test-venv/bin/pip install --quiet --upgrade pip
+          /tmp/wheel-test-venv/bin/pip install --quiet dist/cloakllm_mcp-*.whl
+          # Import using the wheel's installed location (server.py is a
+          # top-level py-module per pyproject.toml); confirm 7-tool surface.
+          /tmp/wheel-test-venv/bin/python -c "
+          import server
+          assert callable(server.sanitize), 'sanitize missing'
+          assert callable(server.sanitize_batch), 'sanitize_batch missing'
+          assert callable(server.desanitize), 'desanitize missing'
+          assert callable(server.desanitize_batch), 'desanitize_batch missing'
+          assert callable(server.analyze), 'analyze missing'
+          assert callable(server.analyze_batch), 'analyze_batch missing'
+          assert callable(server.analyze_context_risk), 'analyze_context_risk missing'
+          print('install-smoke: OK — all 7 tools importable against real FastMCP')
+          "
