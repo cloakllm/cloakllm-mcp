@@ -49,6 +49,12 @@ os.environ["CLOAKLLM_AUDIT_ENABLED"] = "true"
 os.environ["CLOAKLLM_LOG_DIR"] = _TEST_LOG_DIR
 
 from server import sanitize, sanitize_batch, desanitize, desanitize_batch, analyze, analyze_batch, analyze_context_risk, _TOKEN_MAPS, _shield, _resolve_compliance_mode, _scan_metadata_for_pii, _validate_metadata, _validate_category_description, _scan_custom_categories, _validate_short_string
+# v0.7.0 A4a-5: bias-detection MCP tools
+from server import (
+    bias_detection_session_start, bias_pseudonymise,
+    bias_detection_session_end, _BIAS_SESSIONS, MAX_BIAS_SESSIONS,
+    _validate_bias_short_string,
+)
 
 # v0.6.3 review-pass: SEC-2 / SEC-4 use json for inline test fixtures.
 import json as _json
@@ -920,3 +926,285 @@ class TestSec4SanitizeRejectsPiiInModelProvider:
         # Either dict (success path) or no error key
         assert isinstance(result, dict)
         assert "error" not in result, f"false positive on clean values: {result}"
+
+
+# ───────────────────────────────────────────────────────────────────
+# v0.7.0 A4a-5: bias-detection MCP tools
+# ───────────────────────────────────────────────────────────────────
+
+VALID_PURPOSE = "Pre-deployment fairness audit of credit-scoring model v3.2"
+VALID_NJ = "Synthetic data evaluated and rejected. See report XYZ-2026-04."
+VALID_CATS_JSON = '["RACE", "ETHNICITY", "RELIGION"]'
+
+
+@pytest.fixture(autouse=True)
+def _clear_bias_sessions_between_tests():
+    """Reset the MCP bias-session store so test ordering does not interfere
+    with capacity / eviction tests below."""
+    _BIAS_SESSIONS.clear()
+    yield
+    _BIAS_SESSIONS.clear()
+
+
+class TestBiasDetectionSessionStart:
+    def test_happy_path_returns_session_id(self):
+        r = bias_detection_session_start(
+            purpose=VALID_PURPOSE,
+            necessity_justification=VALID_NJ,
+            categories_allowed=VALID_CATS_JSON,
+            max_lifetime_seconds=3600,
+        )
+        assert "error" not in r
+        assert "session_id" in r and r["session_id"]
+        assert "expires_at_unix" in r
+        assert r["max_lifetime_seconds"] == 3600
+
+    def test_rejects_pii_in_purpose(self):
+        r = bias_detection_session_start(
+            purpose="Audit for alice@example.com",
+            necessity_justification=VALID_NJ,
+            categories_allowed=VALID_CATS_JSON,
+            max_lifetime_seconds=60,
+        )
+        assert "error" in r
+        assert "EMAIL" in r["error"]
+
+    def test_rejects_pii_in_necessity_justification(self):
+        r = bias_detection_session_start(
+            purpose=VALID_PURPOSE,
+            necessity_justification="SSN 123-45-6789 in justification text.",
+            categories_allowed=VALID_CATS_JSON,
+            max_lifetime_seconds=60,
+        )
+        assert "error" in r
+        assert "SSN" in r["error"]
+
+    def test_rejects_empty_purpose(self):
+        r = bias_detection_session_start(
+            purpose="",
+            necessity_justification=VALID_NJ,
+            categories_allowed=VALID_CATS_JSON,
+            max_lifetime_seconds=60,
+        )
+        assert "error" in r
+
+    def test_rejects_invalid_categories_json(self):
+        r = bias_detection_session_start(
+            purpose=VALID_PURPOSE,
+            necessity_justification=VALID_NJ,
+            categories_allowed="not-json",
+            max_lifetime_seconds=60,
+        )
+        assert "error" in r and "JSON" in r["error"]
+
+    def test_rejects_non_special_category(self):
+        r = bias_detection_session_start(
+            purpose=VALID_PURPOSE,
+            necessity_justification=VALID_NJ,
+            categories_allowed='["RACE", "EMAIL"]',
+            max_lifetime_seconds=60,
+        )
+        assert "error" in r
+        assert "non-special-category" in r["error"]
+
+    def test_rejects_lifetime_above_ceiling(self):
+        r = bias_detection_session_start(
+            purpose=VALID_PURPOSE,
+            necessity_justification=VALID_NJ,
+            categories_allowed=VALID_CATS_JSON,
+            max_lifetime_seconds=7 * 24 * 60 * 60 + 1,
+        )
+        assert "error" in r
+        assert "7 days" in r["error"]
+
+
+class TestBiasPseudonymise:
+    def _start(self, **overrides):
+        kwargs = dict(
+            purpose=VALID_PURPOSE,
+            necessity_justification=VALID_NJ,
+            categories_allowed=VALID_CATS_JSON,
+            max_lifetime_seconds=3600,
+        )
+        kwargs.update(overrides)
+        return bias_detection_session_start(**kwargs)["session_id"]
+
+    def test_happy_path(self):
+        sid = self._start()
+        r = bias_pseudonymise(
+            session_id=sid,
+            text="Patient identifies as Asian and practices Buddhism.",
+            force_categories='[[22, 27, "RACE"], [42, 50, "RELIGION"]]',
+        )
+        assert "error" not in r
+        assert "[RACE_0]" in r["pseudonymised"]
+        assert "[RELIGION_0]" in r["pseudonymised"]
+        assert r["entity_count"] == 2
+        assert r["categories_used"] == {"RACE": 1, "RELIGION": 1}
+
+    def test_unknown_session(self):
+        r = bias_pseudonymise(
+            session_id="00000000-0000-0000-0000-000000000000",
+            text="x",
+            force_categories='[[0, 1, "RACE"]]',
+        )
+        assert "error" in r
+        assert "not found" in r["error"]
+
+    def test_scope_error_passes_through(self):
+        sid = self._start(categories_allowed='["RACE"]')
+        r = bias_pseudonymise(
+            session_id=sid,
+            text="Buddhist patient.",
+            force_categories='[[0, 8, "RELIGION"]]',
+        )
+        assert "error" in r
+        assert "not in this session" in r["error"]
+
+    def test_invalid_force_categories_json(self):
+        sid = self._start()
+        r = bias_pseudonymise(
+            session_id=sid, text="x", force_categories="not-json",
+        )
+        assert "error" in r and "JSON" in r["error"]
+
+    def test_malformed_span(self):
+        sid = self._start()
+        r = bias_pseudonymise(
+            session_id=sid, text="abc",
+            force_categories='[[0, 1]]',  # 2-element, not 3
+        )
+        assert "error" in r
+
+
+class TestBiasDetectionSessionEnd:
+    def _start(self):
+        return bias_detection_session_start(
+            purpose=VALID_PURPOSE,
+            necessity_justification=VALID_NJ,
+            categories_allowed=VALID_CATS_JSON,
+            max_lifetime_seconds=3600,
+        )["session_id"]
+
+    def test_clean_end_returns_wipe_confirmed(self):
+        sid = self._start()
+        r = bias_detection_session_end(session_id=sid)
+        assert "error" not in r
+        assert r["wipe_confirmed"] is True
+        assert r["entries_processed"] == 0
+
+    def test_end_with_finding_logs_it(self):
+        sid = self._start()
+        bias_pseudonymise(
+            session_id=sid, text="Asian.",
+            force_categories='[[0, 5, "RACE"]]',
+        )
+        r = bias_detection_session_end(
+            session_id=sid,
+            finding_summary="No disparate impact.",
+            bias_metrics='{"dp_diff": 0.012}',
+        )
+        assert "error" not in r
+        assert r["wipe_confirmed"] is True
+        assert r["entries_processed"] == 1
+
+    def test_end_rejects_pii_in_finding_summary(self):
+        sid = self._start()
+        r = bias_detection_session_end(
+            session_id=sid,
+            finding_summary="See alice@example.com for context",
+        )
+        assert "error" in r
+        assert "EMAIL" in r["error"]
+        # Session must still be wiped — verify by trying to use it.
+        r2 = bias_pseudonymise(
+            session_id=sid, text="x",
+            force_categories='[[0, 1, "RACE"]]',
+        )
+        assert "error" in r2 and "not found" in r2["error"]
+
+    def test_end_rejects_invalid_bias_metrics(self):
+        sid = self._start()
+        r = bias_detection_session_end(
+            session_id=sid,
+            finding_summary="ok",
+            bias_metrics="not-json",
+        )
+        assert "error" in r
+        # And session is closed.
+        r2 = bias_pseudonymise(
+            session_id=sid, text="x",
+            force_categories='[[0, 1, "RACE"]]',
+        )
+        assert "error" in r2 and "not found" in r2["error"]
+
+    def test_reuse_after_end_rejected(self):
+        sid = self._start()
+        bias_detection_session_end(session_id=sid)
+        r = bias_pseudonymise(
+            session_id=sid, text="x",
+            force_categories='[[0, 1, "RACE"]]',
+        )
+        assert "error" in r
+        assert "not found" in r["error"]
+
+    def test_end_unknown_session(self):
+        r = bias_detection_session_end(session_id="bogus")
+        assert "error" in r and "not found" in r["error"]
+
+
+class TestBiasShortStringValidator:
+    def test_rejects_email(self):
+        assert "EMAIL" in _validate_bias_short_string(
+            "contact a@b.com", "purpose", 500,
+        )
+
+    def test_rejects_empty(self):
+        assert _validate_bias_short_string("", "purpose", 500) is not None
+        assert _validate_bias_short_string("   ", "purpose", 500) is not None
+
+    def test_rejects_nul_byte(self):
+        assert "NUL" in _validate_bias_short_string("a\x00b", "purpose", 500)
+
+    def test_clean_passes(self):
+        assert _validate_bias_short_string(
+            "Pre-deployment audit purpose", "purpose", 500,
+        ) is None
+
+    # v0.7.0 SECURITY-13: bidi-formatting rejection at MCP trust boundary
+    def test_rejects_bidi_rlo(self):
+        err = _validate_bias_short_string("audit‮evil", "purpose", 500)
+        assert err is not None and "bidi formatting" in err
+
+    def test_rejects_bidi_lro(self):
+        err = _validate_bias_short_string("audit‭evil", "purpose", 500)
+        assert err is not None and "bidi formatting" in err
+
+    def test_rejects_bidi_fsi(self):
+        err = _validate_bias_short_string("audit⁨evil", "purpose", 500)
+        assert err is not None and "bidi formatting" in err
+
+
+class TestBiasMcpSecurityHardenings:
+    """v0.7.0 SECURITY-13: end-to-end MCP-level rejection."""
+
+    def test_session_start_rejects_bidi_in_purpose(self):
+        r = bias_detection_session_start(
+            purpose="audit‮evil",
+            necessity_justification=VALID_NJ,
+            categories_allowed=VALID_CATS_JSON,
+            max_lifetime_seconds=60,
+        )
+        assert "error" in r and "bidi formatting" in r["error"]
+
+    def test_session_end_rejects_bidi_in_finding(self):
+        sid = bias_detection_session_start(
+            purpose=VALID_PURPOSE,
+            necessity_justification=VALID_NJ,
+            categories_allowed=VALID_CATS_JSON,
+            max_lifetime_seconds=60,
+        )["session_id"]
+        r = bias_detection_session_end(
+            session_id=sid, finding_summary="approve‮reject",
+        )
+        assert "error" in r and "bidi formatting" in r["error"]

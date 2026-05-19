@@ -5,6 +5,30 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-05-19
+
+**Headline: 3 new MCP tools for the EU AI Act Article 4a bias-detection workflow.** Pairs with `cloakllm 0.7.0` (which ships `BiasDetectionSession` in the Python SDK).
+
+### Added
+
+- **`bias_detection_session_start(purpose, necessity_justification, categories_allowed, max_lifetime_seconds)`** — opens an Article 4a session. Returns `{session_id, expires_at_unix, max_lifetime_seconds}` or `{error}`. PII scan applied to `purpose` and `necessity_justification` (G5-equivalent — emails, SSNs, IBANs, JWTs, credit-card patterns rejected before any audit-log write). Validates `categories_allowed` is a JSON subset of `SPECIAL_CATEGORY_CATEGORIES`. Hard 7-day ceiling on `max_lifetime_seconds`.
+- **`bias_pseudonymise(session_id, text, force_categories)`** — substitutes caller-declared spans with deterministic special-category tokens (`[RACE_0]`, etc.). Returns `{pseudonymised, entity_count, categories_used}` or `{error}`. Surfaces `BiasDetectionScopeError` (category not in allowed set) and `BiasDetectionTimeoutError` (session expired) as `{error}` payloads with cleanup of the timed-out session's handle.
+- **`bias_detection_session_end(session_id, finding_summary?, bias_metrics?)`** — closes the session, optionally logging a `bias_finding` event first. Returns `{wipe_confirmed, entries_processed, duration_seconds, session_id}`. Even when `finding_summary` validation fails (PII / too long / etc.), the session IS closed so the audit chain reflects the wipe.
+
+### Infrastructure
+
+- New `_BIAS_SESSIONS` OrderedDict (cap 100 concurrent sessions) with capacity-driven eviction that force-ends the oldest session — audit chain always records `bias_session_end` with `exit_reason="evicted"`, no silent token-map outliving the handle.
+- All three tools follow the v0.6.4 invariants: BUG-4 uniform dict returns (no JSON strings), G13 log hygiene via `_log_tool_error` (full message only when `CLOAKLLM_DEBUG=1`).
+- New `_validate_bias_short_string()` helper applies the same PII regex set as `_validate_short_string` but with per-field length caps (purpose ≤ 500, necessity_justification ≤ 2000, finding_summary ≤ 500).
+
+### Floor
+
+- `cloakllm>=0.7.0` (was `>=0.6.5`). The new MCP tools call `BiasDetectionSession` which is introduced in the Python SDK at v0.7.0.
+
+### Test suite
+
+99 → 121 tests (added MCP bias-detection tool suite covering happy path, PII rejection, scope error pass-through, malformed input, reuse-after-end, finding logging).
+
 ## [0.6.5] - 2026-04-24
 
 Drop-in safe from v0.6.4 / 0.6.4.post1. Floor bumped to
