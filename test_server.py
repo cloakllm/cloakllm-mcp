@@ -1208,3 +1208,42 @@ class TestBiasMcpSecurityHardenings:
             session_id=sid, finding_summary="approve‮reject",
         )
         assert "error" in r and "bidi formatting" in r["error"]
+
+
+# ───────────────────────────────────────────────────────────────────
+# v0.7.1 C7.1-1: decision_id round-trip across MCP sanitize/desanitize
+# ───────────────────────────────────────────────────────────────────
+
+
+class TestDecisionIdMcpRoundTrip:
+    def test_sanitize_surfaces_auto_generated_decision_id(self):
+        r = sanitize(text="Email john@example.com")
+        assert "decision_id" in r
+        assert r["decision_id"] and len(r["decision_id"]) == 26
+
+    def test_sanitize_accepts_caller_supplied_decision_id(self):
+        r = sanitize(text="Email john@example.com", decision_id="custom-id-001")
+        assert r["decision_id"] == "custom-id-001"
+
+    def test_desanitize_inherits_decision_id_from_token_map(self):
+        r1 = sanitize(text="Email john@example.com")
+        sid = r1["decision_id"]
+        r2 = desanitize(text=r1["sanitized"], token_map_id=r1["token_map_id"])
+        assert r2["decision_id"] == sid
+
+    def test_desanitize_override_wins(self):
+        r1 = sanitize(text="Email john@example.com")
+        r2 = desanitize(
+            text=r1["sanitized"], token_map_id=r1["token_map_id"],
+            decision_id="override-zzz",
+        )
+        assert r2["decision_id"] == "override-zzz"
+
+    def test_sanitize_batch_surfaces_decision_id(self):
+        r = sanitize_batch(texts=["a@b.com", "c@d.com"])
+        assert r.get("decision_id") and len(r["decision_id"]) == 26
+
+    def test_unique_decision_ids_across_calls(self):
+        r1 = sanitize(text="Email a@b.com")
+        r2 = sanitize(text="Email c@d.com")
+        assert r1["decision_id"] != r2["decision_id"]

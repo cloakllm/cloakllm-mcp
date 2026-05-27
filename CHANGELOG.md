@@ -5,6 +5,18 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-05-19
+
+Floor bumped to `cloakllm>=0.7.1,<0.8.0`. MCP tools now surface the v0.7.1 `decision_id` field as an optional input + return value on all four sanitize/desanitize tools.
+
+### Added
+
+- **`decision_id` parameter** on `sanitize`, `sanitize_batch`, `desanitize`, `desanitize_batch` MCP tools. Optional (empty string = auto-generate ULID on sanitize / inherit from token_map on desanitize). Return values now include `decision_id` so the LLM can pass it through end-to-end.
+
+### Tests
+
+- 126 -> 132 tests (+6): MCP regression covering `decision_id` round-trip across sanitize -> desanitize, MCP-level ULID auto-gen, caller-supplied IDs, response shape.
+
 ## [0.7.0] - 2026-05-19
 
 **Headline: 3 new MCP tools for the EU AI Act Article 4a bias-detection workflow.** Pairs with `cloakllm 0.7.0` (which ships `BiasDetectionSession` in the Python SDK).
