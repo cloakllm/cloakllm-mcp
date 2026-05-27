@@ -460,7 +460,7 @@ def _get_cached_shield(mode="tokenize", entity_hashing=False, custom_llm_categor
 # trust boundary -- these can visually spoof audit-log reviewers without
 # altering the JSON bytes. Defense-in-depth: the session class itself also
 # rejects (see cloakllm.bias_detection._reject_bidi_formatting).
-_BIDI_FORMATTING_RE = re.compile("[‪-‮⁦-⁩]")
+_BIDI_FORMATTING_RE = re.compile("[\u202a-\u202e\u2066-\u2069]")
 
 
 def _validate_bias_short_string(value: str, field_name: str, max_len: int) -> str | None:
@@ -542,6 +542,7 @@ def sanitize(
     custom_llm_categories: str = "",
     entity_hashing: bool = False,
     entity_hash_key: str = "",
+    decision_id: str = "",
 ) -> dict:
     """
     Detect and cloak PII in text.
@@ -639,7 +640,8 @@ def sanitize(
 
         sanitized, token_map = shield.sanitize(
             text, model=model or None, provider=provider or None,
-            metadata=metadata_dict, token_map=existing_map
+            metadata=metadata_dict, token_map=existing_map,
+            decision_id=decision_id or None,
         )
 
         # In redact mode, don't store a token map (nothing to reverse)
@@ -670,6 +672,10 @@ def sanitize(
             "entity_count": token_map.entity_count,
             "categories": token_map.categories,
             "entity_details": token_map.entity_details,
+            # v0.7.1 C7.1-1: surface decision_id so the caller can pass it through
+            # to the matching desanitize call (or correlate across articles in a
+            # downstream compliance report).
+            "decision_id": getattr(token_map, "decision_id", None),
         }
         if token_map.certificate is not None:
             result["certificate"] = token_map.certificate.to_dict()
@@ -690,6 +696,7 @@ def sanitize_batch(
     mode: str = "",
     entity_hashing: bool = False,
     entity_hash_key: str = "",
+    decision_id: str = "",
 ) -> dict:
     """
     Detect and cloak PII in multiple texts with a shared token map.
@@ -772,7 +779,8 @@ def sanitize_batch(
 
         sanitized_texts, token_map = shield.sanitize_batch(
             texts, model=model or None, provider=provider or None,
-            metadata=metadata_dict, token_map=existing_map
+            metadata=metadata_dict, token_map=existing_map,
+            decision_id=decision_id or None,
         )
 
         # In redact mode, don't store a token map (nothing to reverse)
@@ -802,6 +810,8 @@ def sanitize_batch(
             "entity_count": token_map.entity_count,
             "categories": token_map.categories,
             "entity_details": token_map.entity_details,
+            # v0.7.1 C7.1-1: surface decision_id (same pattern as sanitize)
+            "decision_id": getattr(token_map, "decision_id", None),
         }
         if token_map.certificate is not None:
             result["certificate"] = token_map.certificate.to_dict()
@@ -816,6 +826,7 @@ def desanitize(
     text: str,
     token_map_id: str,
     metadata: str = "",
+    decision_id: str = "",
 ) -> dict:
     """
     Restore original values in text using a token map.
@@ -827,9 +838,13 @@ def desanitize(
         text: The text containing tokens to restore.
         token_map_id: The ID returned by a previous sanitize call.
         metadata: Optional metadata string (for audit logging).
+        decision_id: Optional explicit override. Default behavior inherits the
+            decision_id stored on the token_map by the matching sanitize call
+            (v0.7.1 C7.1-1) -- supply this only if you want to detach from
+            that anchor.
 
     Returns:
-        dict with the restored text.
+        dict with the restored text + decision_id used in the audit entry.
     """
     try:
         err = _validate_text_input(text)
@@ -846,8 +861,14 @@ def desanitize(
         if meta_err:
             return meta_err  # v0.6.4 BUG-4: dict, not JSON string
 
-        restored = _shield.desanitize(text, token_map, metadata=metadata_dict)
-        return {"restored": restored}
+        restored = _shield.desanitize(
+            text, token_map, metadata=metadata_dict,
+            decision_id=decision_id or None,
+        )
+        return {
+            "restored": restored,
+            "decision_id": decision_id or getattr(token_map, "decision_id", None),
+        }
     except Exception as e:
         _log_tool_error("desanitize", e)
         return {"error": "Desanitization failed. Check server logs for details."}
@@ -858,6 +879,7 @@ def desanitize_batch(
     texts: list[str],
     token_map_id: str,
     metadata: str = "",
+    decision_id: str = "",
 ) -> dict:
     """
     Restore original values in multiple texts using a shared token map.
@@ -888,8 +910,14 @@ def desanitize_batch(
         if meta_err:
             return meta_err  # v0.6.4 BUG-4: dict, not JSON string
 
-        restored = _shield.desanitize_batch(texts, token_map, metadata=metadata_dict)
-        return {"restored": restored}
+        restored = _shield.desanitize_batch(
+            texts, token_map, metadata=metadata_dict,
+            decision_id=decision_id or None,
+        )
+        return {
+            "restored": restored,
+            "decision_id": decision_id or getattr(token_map, "decision_id", None),
+        }
     except Exception as e:
         _log_tool_error("desanitize_batch", e)
         return {"error": "Batch desanitization failed. Check server logs for details."}
