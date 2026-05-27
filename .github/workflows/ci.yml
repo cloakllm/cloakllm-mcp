@@ -69,6 +69,7 @@ jobs:
           # top-level py-module per pyproject.toml); confirm 7-tool surface.
           /tmp/wheel-test-venv/bin/python -c "
           import server
+          # v0.6.5: original 7-tool surface
           assert callable(server.sanitize), 'sanitize missing'
           assert callable(server.sanitize_batch), 'sanitize_batch missing'
           assert callable(server.desanitize), 'desanitize missing'
@@ -76,5 +77,11 @@ jobs:
           assert callable(server.analyze), 'analyze missing'
           assert callable(server.analyze_batch), 'analyze_batch missing'
           assert callable(server.analyze_context_risk), 'analyze_context_risk missing'
-          print('install-smoke: OK — all 7 tools importable against real FastMCP')
+          # v0.7.0: Article 4a bias-detection tools (added by v0.7.0; assertion
+          # added in v0.7.1 -- the v0.7.0 install-smoke wasn't updated to check
+          # them, audit-process gap caught by the v0.7.1 audit).
+          assert callable(server.bias_detection_session_start), 'bias_detection_session_start missing'
+          assert callable(server.bias_pseudonymise), 'bias_pseudonymise missing'
+          assert callable(server.bias_detection_session_end), 'bias_detection_session_end missing'
+          print('install-smoke: OK -- all 10 tools importable against real FastMCP')
           "
