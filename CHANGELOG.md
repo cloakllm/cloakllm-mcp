@@ -5,6 +5,18 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-05-31
+
+Floor bumped to `cloakllm>=0.8.1,<0.9.0`. **New 12th MCP tool: `get_key_manifest`** -- exposes the v0.8.1 KeyManifest to MCP clients (Claude Desktop, Cursor, etc.).
+
+### Added
+
+- **`get_key_manifest` MCP tool** -- returns the KeyManifest dict for the current Shield's signing key. Empty dict (no error) when attestation isn't enabled on this Shield. Error dict (BUG-4 invariant: always a dict, never a JSON string) when attestation is set but `deployer_id` isn't configured. Single-tool surface intentionally; auditors use the CLI or SDK for verification. 11 tools -> **12 tools**.
+
+### Tests
+
+- 138 -> 141 tests (+3): MCP regression covering happy-path with attestation + deployer_id, empty-dict back-compat when attestation disabled, error path when attestation set without deployer_id, plus 12-tool surface assertion in install-smoke CI step.
+
 ## [0.8.0] - 2026-05-31
 
 Floor bumped to `cloakllm>=0.8.0,<0.9.0`. **New 11th MCP tool: `generate_compliance_report`** -- exposes the v0.8.0 Article 12 / 4a / 19 audit-report engine to MCP clients (Claude Desktop, Cursor, etc.).

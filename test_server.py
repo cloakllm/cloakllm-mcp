@@ -57,6 +57,8 @@ from server import (
 )
 # v0.8.0 CR8-7: compliance reporting MCP tool
 from server import generate_compliance_report
+# v0.8.1 KM-6: externally-verifiable key provenance
+from server import get_key_manifest
 
 # v0.6.3 review-pass: SEC-2 / SEC-4 use json for inline test fixtures.
 import json as _json
@@ -1299,3 +1301,55 @@ class TestGenerateComplianceReportMcp:
         r = generate_compliance_report(format="yaml")
         assert isinstance(r, dict)
         assert "error" in r
+
+
+# v0.8.1 KM-6: MCP-level coverage of get_key_manifest (12th tool).
+class TestGetKeyManifestMcp:
+    def test_returns_empty_dict_when_attestation_disabled(self):
+        # Default Shield in tests has no attestation key -> empty dict.
+        # Verify whatever the current state is: either empty or an
+        # error (deployer_id unset). Both are valid back-compat paths.
+        from server import _shield
+        r = get_key_manifest()
+        # BUG-4 invariant: always a dict, never a JSON string.
+        assert isinstance(r, dict)
+        if _shield._attestation_key is None:
+            assert r == {}, f"expected empty dict, got {r}"
+
+    def test_returns_manifest_with_attestation_and_deployer_id(self, monkeypatch):
+        # Re-init the module-level shield with attestation + deployer_id
+        # so the get_key_manifest tool has something to return.
+        import server
+        from cloakllm import Shield, ShieldConfig, DeploymentKeyPair
+        kp = DeploymentKeyPair.generate()
+        prior = server._shield
+        try:
+            server._shield = Shield(config=ShieldConfig(
+                attestation_key=kp,
+                deployer_id="test-deployer",
+                key_valid_from="2026-01-01T00:00:00+00:00",
+                key_valid_until="2027-01-01T00:00:00+00:00",
+            ))
+            r = get_key_manifest()
+            assert isinstance(r, dict)
+            assert "error" not in r
+            assert r["deployer_id"] == "test-deployer"
+            assert r["purpose"] == "cloakllm-audit-attestation"
+            assert r["manifest_hash"]
+            assert r["root_signature"] is None  # CLI-only ceremony
+        finally:
+            server._shield = prior
+
+    def test_returns_error_when_attestation_set_but_deployer_id_missing(self):
+        import server
+        from cloakllm import Shield, ShieldConfig, DeploymentKeyPair
+        kp = DeploymentKeyPair.generate()
+        prior = server._shield
+        try:
+            server._shield = Shield(config=ShieldConfig(attestation_key=kp))
+            r = get_key_manifest()
+            assert isinstance(r, dict)
+            assert "error" in r
+            assert "deployer_id" in r["error"]
+        finally:
+            server._shield = prior
