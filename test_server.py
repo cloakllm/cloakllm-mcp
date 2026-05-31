@@ -55,6 +55,8 @@ from server import (
     bias_detection_session_end, _BIAS_SESSIONS, MAX_BIAS_SESSIONS,
     _validate_bias_short_string,
 )
+# v0.8.0 CR8-7: compliance reporting MCP tool
+from server import generate_compliance_report
 
 # v0.6.3 review-pass: SEC-2 / SEC-4 use json for inline test fixtures.
 import json as _json
@@ -1247,3 +1249,53 @@ class TestDecisionIdMcpRoundTrip:
         r1 = sanitize(text="Email a@b.com")
         r2 = sanitize(text="Email c@d.com")
         assert r1["decision_id"] != r2["decision_id"]
+
+
+# v0.8.0 CR8-7: MCP-level coverage of generate_compliance_report.
+class TestGenerateComplianceReportMcp:
+    def test_returns_report_dict_on_format_json(self):
+        # Ensure some activity is in the chain before the call.
+        sanitize(text="email a@b.com")
+        r = generate_compliance_report(format="json")
+        assert "error" not in r
+        assert "report_metadata" in r
+        assert "per_article" in r
+        assert "verdict" in r
+        assert r["verdict"] in ("COMPLIANT", "NON_COMPLIANT")
+        # v0.8.1 forward-compat: provenance_summary slot present with nulls.
+        assert "provenance_summary" in r["attestation"]
+        assert r["attestation"]["provenance_summary"]["manifests_found"] is None
+
+    def test_returns_markdown_envelope_on_format_markdown(self):
+        sanitize(text="email a@b.com")
+        r = generate_compliance_report(format="markdown")
+        assert "markdown" in r
+        assert isinstance(r["markdown"], str)
+        assert r["markdown"].startswith("# CloakLLM Compliance Report")
+
+    def test_rejects_pdf_format_at_mcp_layer(self):
+        r = generate_compliance_report(format="pdf")
+        assert "error" in r
+        assert "CLI" in r["error"]
+
+    def test_articles_filter_csv(self):
+        sanitize(text="email a@b.com")
+        r = generate_compliance_report(
+            format="json",
+            articles="EU_AI_Act_Art_12,EU_AI_Act_Art_4a",
+        )
+        assert "per_article" in r
+        assert r["articles_in_scope"] == [
+            "EU_AI_Act_Art_12", "EU_AI_Act_Art_4a",
+        ]
+
+    def test_include_decisions_emits_per_decision_rollup(self):
+        sanitize(text="email a@b.com")
+        r = generate_compliance_report(format="json", include_decisions=True)
+        assert "decisions" in r
+
+    def test_invalid_format_returns_dict_not_string(self):
+        # BUG-4 invariant: MCP tools return dicts on error, not JSON strings.
+        r = generate_compliance_report(format="yaml")
+        assert isinstance(r, dict)
+        assert "error" in r

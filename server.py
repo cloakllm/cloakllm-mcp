@@ -1,7 +1,7 @@
 """
 CloakLLM MCP Server.
 
-Exposes CloakLLM's Python SDK as 10 MCP tools for Claude Desktop and other
+Exposes CloakLLM's Python SDK as 11 MCP tools for Claude Desktop and other
 MCP-compatible clients:
 
   - sanitize                       -- Detect & cloak PII, return sanitized text + token map ID
@@ -15,6 +15,7 @@ MCP-compatible clients:
   - bias_pseudonymise              -- (v0.7.0) Pseudonymise special-category PII within a session
   - bias_detection_session_end     -- (v0.7.0) Close a session (optionally with a finding)
                                      and wipe the session token map
+  - generate_compliance_report     -- (v0.8.0) Generate a regulatory-output compliance report
 
 Run:
   python -m mcp run server.py
@@ -1375,6 +1376,56 @@ def bias_detection_session_end(
     except Exception as e:
         _log_tool_error("bias_detection_session_end", e)
         return {"error": "Bias-detection session end failed. Check server logs for details."}
+
+
+# ── v0.8.0 CR8-7: compliance reporting MCP tool ──────────────────
+
+@mcp.tool()
+def generate_compliance_report(
+    period_from: str = "",
+    period_to: str = "",
+    articles: str = "",
+    format: str = "json",
+    include_decisions: bool = False,
+) -> dict:
+    """
+    Generate a regulatory-output compliance report from this server's audit
+    log. Pairs with `cloakllm verify` to produce the artifact a compliance
+    officer hands to an auditor.
+
+    Args:
+        period_from: ISO 8601 UTC start (inclusive). Empty = unbounded.
+        period_to: ISO 8601 UTC end (inclusive). Empty = unbounded.
+        articles: Comma-separated article filter (e.g.
+            "EU_AI_Act_Art_12,EU_AI_Act_Art_4a"). Empty = all articles
+            found in the chain.
+        format: "json" (default) returns the structured report dict.
+            "markdown" returns rendered Markdown as a string.
+            PDF output is not available via MCP (use the CLI for PDF).
+        include_decisions: when true, the report includes per-decision_id
+            rollup. Large on high-volume chains; default false.
+
+    Returns:
+        dict with the report (format=json) or {"markdown": "..."} (format=markdown)
+        or {"error": "..."} on validation failure.
+    """
+    try:
+        if format not in ("json", "markdown"):
+            return {"error": f"format must be 'json' or 'markdown' (got {format!r}). PDF output is CLI-only."}
+        article_list = [a.strip() for a in articles.split(",") if a.strip()] or None
+        result = _shield.generate_compliance_report(
+            period_from=period_from or None,
+            period_to=period_to or None,
+            articles=article_list,
+            format=format,
+            include_decisions=include_decisions,
+        )
+        if format == "markdown":
+            return {"markdown": result}
+        return result
+    except Exception as e:
+        _log_tool_error("generate_compliance_report", e)
+        return {"error": "Compliance report generation failed. Check server logs for details."}
 
 
 # ── Entry point ──────────────────────────────────────────────────

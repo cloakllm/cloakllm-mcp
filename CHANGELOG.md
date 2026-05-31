@@ -5,6 +5,18 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-05-31
+
+Floor bumped to `cloakllm>=0.8.0,<0.9.0`. **New 11th MCP tool: `generate_compliance_report`** -- exposes the v0.8.0 Article 12 / 4a / 19 audit-report engine to MCP clients (Claude Desktop, Cursor, etc.).
+
+### Added
+
+- **`generate_compliance_report` MCP tool** -- params: `period_from`, `period_to`, `articles[]`, `format` (`json` or `markdown`; PDF is CLI-only -- rejected at MCP layer), `include_decisions`. Returns the report dict directly (JSON) or `{"markdown": "..."}` envelope (Markdown). Preserves the BUG-4 invariant (uniform dict returns) and G13 log hygiene (`CLOAKLLM_DEBUG=1` for full exceptions, otherwise sanitized error class only). 10 tools -> **11 tools**.
+
+### Tests
+
+- 132 -> 138 tests (+6): MCP regression covering `generate_compliance_report` happy-path JSON output, Markdown envelope, PDF rejection at MCP layer with helpful error message, article filter, include-decisions rollup, and 11-tool surface assertion in install-smoke CI step.
+
 ## [0.7.1] - 2026-05-19
 
 Floor bumped to `cloakllm>=0.7.1,<0.8.0`. MCP tools now surface the v0.7.1 `decision_id` field as an optional input + return value on all four sanitize/desanitize tools.
