@@ -83,5 +83,7 @@ jobs:
           assert callable(server.bias_detection_session_start), 'bias_detection_session_start missing'
           assert callable(server.bias_pseudonymise), 'bias_pseudonymise missing'
           assert callable(server.bias_detection_session_end), 'bias_detection_session_end missing'
-          print('install-smoke: OK -- all 10 tools importable against real FastMCP')
+          # v0.8.0: compliance reporting tool
+          assert callable(server.generate_compliance_report), 'generate_compliance_report missing'
+          print('install-smoke: OK -- all 11 tools importable against real FastMCP')
           "
