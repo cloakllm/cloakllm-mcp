@@ -1,6 +1,6 @@
 [project]
 name = "cloakllm-mcp"
-version = "0.8.1"
+version = "0.8.2"
 description = "MCP server for CloakLLM — PII cloaking tools for Claude Desktop"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,7 +15,11 @@ dependencies = [
     # streaming case-variant warning, MCP model/provider PII scan, audit
     # chain integrity typed exception, audit file 0o600 perms, etc.). MCP
     # installs MUST get the v0.6.3 cloakllm to inherit those fixes.
-    "cloakllm>=0.8.1,<0.9.0",
+    # v0.8.2: pull cloakllm[attestation] so the Ed25519 backend is auto-installed
+    # alongside MCP. Without this, `pip install cloakllm-mcp` lands you in the
+    # "tried KeyManifest, got Shield.__init__ RuntimeError" state on the very
+    # first call to get_key_manifest. The extras add ~few-MB pynacl; worth it.
+    "cloakllm[attestation]>=0.8.2,<0.9.0",
     "mcp[cli]>=1.0.0,<2.0.0",
 ]
 

@@ -5,6 +5,19 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-05-31
+
+**Dep change: `cloakllm[attestation]>=0.8.2,<0.9.0`** (was `cloakllm>=0.8.1`). The `get_key_manifest` MCP tool (v0.8.1) needs an Ed25519 backend; pulling `cloakllm[attestation]` extras auto-installs `pynacl` so `pip install cloakllm-mcp` works out of the box without a manual extras dance.
+
+### Changed
+
+- Dep floor: `cloakllm>=0.8.1,<0.9.0` -> `cloakllm[attestation]>=0.8.2,<0.9.0`. The `[attestation]` extras pull `pynacl` automatically. Adds ~few MB to the install footprint; worth it because the v0.8.1 KeyManifest path is now functional out of the box.
+- Install-smoke CI step now installs `cloakllm[attestation]` (via the MCP dep) and confirms `pynacl` is importable in the fresh venv.
+
+### Tests
+
+- 141 tests unchanged. No new MCP-side behavior.
+
 ## [0.8.1] - 2026-05-31
 
 Floor bumped to `cloakllm>=0.8.1,<0.9.0`. **New 12th MCP tool: `get_key_manifest`** -- exposes the v0.8.1 KeyManifest to MCP clients (Claude Desktop, Cursor, etc.).
