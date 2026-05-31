@@ -16,6 +16,7 @@ MCP-compatible clients:
   - bias_detection_session_end     -- (v0.7.0) Close a session (optionally with a finding)
                                      and wipe the session token map
   - generate_compliance_report     -- (v0.8.0) Generate a regulatory-output compliance report
+  - get_key_manifest               -- (v0.8.1) Externally-verifiable key provenance manifest
 
 Run:
   python -m mcp run server.py
@@ -1426,6 +1427,53 @@ def generate_compliance_report(
     except Exception as e:
         _log_tool_error("generate_compliance_report", e)
         return {"error": "Compliance report generation failed. Check server logs for details."}
+
+
+# ── v0.8.1 KM-6: externally-verifiable key provenance ───────────
+
+@mcp.tool()
+def get_key_manifest() -> dict:
+    """Return the KeyManifest associated with the current Shield's signing key.
+
+    The KeyManifest binds the signing key to a deployer identity and
+    validity window. External auditors use it together with cert.signature
+    to verify CloakLLM audit chains without trusting CloakLLM or the
+    deployer out-of-band. See COMPLIANCE.md "Externally-Verifiable Key
+    Provenance" for the threat model.
+
+    Returns:
+        dict with the manifest's fields. Single-tool surface intentionally:
+        no verify_key_provenance MCP tool (auditors use the CLI or SDK).
+
+    Empty-result semantics:
+        Returns {} (empty dict, no "error") when attestation is not enabled
+        on this Shield. Not all deployments sign audit entries; the caller
+        should interpret an empty result as "this deployment doesn't sign"
+        rather than "manifest not found."
+    """
+    try:
+        kp = getattr(_shield, "_attestation_key", None)
+        if kp is None:
+            return {}
+        if not _shield.config.deployer_id:
+            return {
+                "error": (
+                    "attestation key is loaded but no deployer_id is "
+                    "configured -- set CLOAKLLM_DEPLOYER_ID env or "
+                    "ShieldConfig(deployer_id=...) to enable KeyManifest."
+                )
+            }
+        from cloakllm.attestation import derive_key_manifest
+        manifest = derive_key_manifest(
+            kp,
+            deployer_id=_shield.config.deployer_id,
+            valid_from=_shield.config.key_valid_from,
+            valid_until=_shield.config.key_valid_until,
+        )
+        return manifest.to_dict()
+    except Exception as e:
+        _log_tool_error("get_key_manifest", e)
+        return {"error": "get_key_manifest failed. Check server logs for details."}
 
 
 # ── Entry point ──────────────────────────────────────────────────
