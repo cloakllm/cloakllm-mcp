@@ -42,12 +42,9 @@ jobs:
       # consistent (the common case) the first probe passes instantly.
       - name: Wait for cloakllm on PyPI
         run: |
-          REQUIRED=$(python -c "
-          import re, tomllib
-          deps = tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']
-          spec = next(d for d in deps if d.startswith('cloakllm'))
-          print(re.search(r'>=([0-9.]+)', spec).group(1))
-          ")
+          # grep, not tomllib -- tomllib is Python 3.11+ stdlib and this
+          # matrix includes 3.10 (the first run of this step failed there).
+          REQUIRED=$(grep -oP 'cloakllm(\[[a-z]+\])?>=\K[0-9.]+' pyproject.toml | head -1)
           echo "pyproject requires cloakllm>=$REQUIRED"
           for attempt in $(seq 1 20); do
             AVAILABLE=$(pip index versions cloakllm --no-cache-dir 2>/dev/null | head -1 || true)
