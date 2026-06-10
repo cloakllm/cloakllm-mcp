@@ -5,6 +5,18 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-10
+
+Floor bumped to `cloakllm[attestation]>=0.9.0,<0.10.0`. **`get_key_manifest` gains `revocation_status`** (RV-6) -- `NOT_CHECKED` when no list configured, `NOT_REVOKED` / `REVOKED` / `LIST_INVALID` when `CLOAKLLM_REVOCATION_LIST` is set. No new tool; stays at 12.
+
+### Changed
+
+- **CI install step gains a wait-for-PyPI poll** (CI-1) -- parses the `cloakllm>=X.Y.Z` constraint from pyproject.toml and polls PyPI (no-cache) up to 5 minutes before `pip install`. Closes the propagation-lag race that required manual empty-commit retriggers on the v0.8.0, v0.8.1, AND v0.8.2 releases (3-for-3).
+
+### Tests
+
+- 141 tests unchanged (revocation_status is response-shape additive; covered transitively by the cloakllm-py suite).
+
 ## [0.8.2] - 2026-05-31
 
 **Dep change: `cloakllm[attestation]>=0.8.2,<0.9.0`** (was `cloakllm>=0.8.1`). The `get_key_manifest` MCP tool (v0.8.1) needs an Ed25519 backend; pulling `cloakllm[attestation]` extras auto-installs `pynacl` so `pip install cloakllm-mcp` works out of the box without a manual extras dance.

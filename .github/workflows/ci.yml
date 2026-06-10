@@ -33,6 +33,52 @@ jobs:
       - name: Upgrade pip
         run: pip install --upgrade pip
 
+      # v0.9.0 CI-1: wait for PyPI to index the cloakllm version this repo
+      # depends on. PyPI's CDN takes ~30-90s to propagate a fresh publish;
+      # this CI fired before propagation on the v0.8.0, v0.8.1, AND v0.8.2
+      # releases (3-for-3), each needing a manual empty-commit retrigger.
+      # The loop polls (no-cache) for a version satisfying the pyproject
+      # constraint, up to 5 minutes, then proceeds. When PyPI is already
+      # consistent (the common case) the first probe passes instantly.
+      - name: Wait for cloakllm on PyPI
+        run: |
+          REQUIRED=$(python -c "
+          import re, tomllib
+          deps = tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']
+          spec = next(d for d in deps if d.startswith('cloakllm'))
+          print(re.search(r'>=([0-9.]+)', spec).group(1))
+          ")
+          echo "pyproject requires cloakllm>=$REQUIRED"
+          for attempt in $(seq 1 20); do
+            AVAILABLE=$(pip index versions cloakllm --no-cache-dir 2>/dev/null | head -1 || true)
+            echo "attempt $attempt: $AVAILABLE"
+            if echo "$AVAILABLE" | grep -q "($REQUIRED)"; then
+              echo "PyPI has cloakllm $REQUIRED -- proceeding"
+              exit 0
+            fi
+            # Also accept any NEWER version that satisfies >= (grep the full list)
+            if pip index versions cloakllm --no-cache-dir 2>/dev/null \
+                 | python -c "
+          import sys, re
+          required = '$REQUIRED'
+          text = sys.stdin.read()
+          m = re.search(r'Available versions: (.+)', text)
+          if m:
+              from itertools import zip_longest
+              def key(v): return [int(x) for x in v.strip().split('.') if x.strip().isdigit()]
+              versions = [v.strip() for v in m.group(1).split(',')]
+              ok = any(key(v) >= key(required) for v in versions if v)
+              sys.exit(0 if ok else 1)
+          sys.exit(1)
+          "; then
+              echo "PyPI has a version >= $REQUIRED -- proceeding"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::cloakllm>=$REQUIRED not on PyPI after 5 minutes"
+          exit 1
+
       - name: Install dependencies
         run: pip install -e . pytest pip-audit
 

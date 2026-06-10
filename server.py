@@ -1470,7 +1470,31 @@ def get_key_manifest() -> dict:
             valid_from=_shield.config.key_valid_from,
             valid_until=_shield.config.key_valid_until,
         )
-        return manifest.to_dict()
+        result = manifest.to_dict()
+
+        # v0.9.0 RV-6: surface revocation_status when a revocation list is
+        # configured. In practice the server fails at startup if its OWN
+        # key is revoked (the RV-3 fail-hard), so callers normally see
+        # NOT_REVOKED here -- the field exists so MCP clients can confirm
+        # the check ran. NOT_CHECKED when no list is configured.
+        rl_path = getattr(_shield.config, "revocation_list_path", None)
+        if rl_path:
+            import json as _json
+            from pathlib import Path as _Path
+            from cloakllm.attestation import RevocationList
+            try:
+                rl = RevocationList.from_dict(
+                    _json.loads(_Path(rl_path).read_text(encoding="utf-8"))
+                )
+                entry = rl.find_entry(manifest.key_id)
+                result["revocation_status"] = (
+                    "REVOKED" if entry is not None else "NOT_REVOKED"
+                )
+            except Exception:
+                result["revocation_status"] = "LIST_INVALID"
+        else:
+            result["revocation_status"] = "NOT_CHECKED"
+        return result
     except Exception as e:
         _log_tool_error("get_key_manifest", e)
         return {"error": "get_key_manifest failed. Check server logs for details."}
