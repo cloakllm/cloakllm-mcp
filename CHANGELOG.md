@@ -5,6 +5,14 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-06-17
+
+Floor bumped to `cloakllm[attestation]>=0.10.0,<0.11.0`. **New `record_content_generation` tool (13th)** for EU AI Act Article 50 content-labeling record-keeping: writes a `content_generation` audit event (modality, labeled, disclosure_method, deepfake, optional caller-computed content_hash) and returns a uniform dict echoing the recorded `content_context` + `decision_id` (BUG-4 invariant). An invalid `modality`/`disclosure_method` returns `{"error": ...}` rather than raising. The content itself never reaches the server -- only a hash. Install-smoke assertion updated 12 -> 13 tools.
+
+### Changed
+- Floor: `cloakllm[attestation]>=0.10.0,<0.11.0`.
+- 141 -> 145 tests (+4).
+
 ## [0.9.0] - 2026-06-10
 
 Floor bumped to `cloakllm[attestation]>=0.9.0,<0.10.0`. **`get_key_manifest` gains `revocation_status`** (RV-6) -- `NOT_CHECKED` when no list configured, `NOT_REVOKED` / `REVOKED` / `LIST_INVALID` when `CLOAKLLM_REVOCATION_LIST` is set. No new tool; stays at 12.

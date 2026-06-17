@@ -59,6 +59,8 @@ from server import (
 from server import generate_compliance_report
 # v0.8.1 KM-6: externally-verifiable key provenance
 from server import get_key_manifest
+# v0.10.0 A50-5: Article 50 content-labeling record-keeping (13th tool)
+from server import record_content_generation
 
 # v0.6.3 review-pass: SEC-2 / SEC-4 use json for inline test fixtures.
 import json as _json
@@ -1353,3 +1355,44 @@ class TestGetKeyManifestMcp:
             assert "deployer_id" in r["error"]
         finally:
             server._shield = prior
+
+
+# v0.10.0 A50-5: MCP-level coverage of record_content_generation (13th tool).
+class TestRecordContentGenerationMcp:
+    def test_records_and_echoes_uniform_dict(self):
+        r = record_content_generation(
+            modality="image", labeled=True, disclosure_method="c2pa",
+            content_hash="a" * 64,
+        )
+        assert isinstance(r, dict)
+        assert "error" not in r
+        assert r["status"] == "recorded"
+        assert r["event_type"] == "content_generation"
+        assert r["content_context"]["modality"] == "image"
+        assert r["content_context"]["content_hash"] == "a" * 64
+        assert r["decision_id"]  # a ULID was generated
+
+    def test_threads_explicit_decision_id(self):
+        r = record_content_generation(
+            modality="text", labeled=True, decision_id="my-decision-xyz",
+        )
+        assert r["decision_id"] == "my-decision-xyz"
+
+    def test_bad_modality_returns_error_dict(self):
+        # BUG-4 invariant: uniform dict return, never a raised exception.
+        r = record_content_generation(modality="hologram")
+        assert isinstance(r, dict)
+        assert "error" in r
+        assert "modality" in r["error"]
+
+    def test_event_lands_in_compliance_report(self):
+        record_content_generation(
+            modality="audio", labeled=False, disclosure_method="none",
+        )
+        rep = generate_compliance_report(
+            format="json", articles="EU_AI_Act_Art_50",
+        )
+        a50 = rep["per_article"]["EU_AI_Act_Art_50"]
+        # at least the one unlabeled event we just wrote
+        assert a50["generation_events"] >= 1
+        assert rep["verdict"] == "NON_COMPLIANT"  # unlabeled -> finding

@@ -1500,6 +1500,82 @@ def get_key_manifest() -> dict:
         return {"error": "get_key_manifest failed. Check server logs for details."}
 
 
+# ── v0.10.0 A50-5: Article 50 content-labeling record-keeping ────
+
+@mcp.tool()
+def record_content_generation(
+    modality: str,
+    synthetic: bool = True,
+    labeled: bool = False,
+    disclosure_method: str = "none",
+    deepfake: bool = False,
+    c2pa_manifest_hash: str = "",
+    content_hash: str = "",
+    decision_id: str = "",
+) -> dict:
+    """Write a content_generation audit event for EU AI Act Article 50
+    transparency record-keeping.
+
+    Records that synthetic content was generated and whether a
+    machine-readable AI-generation label / deep-fake disclosure was applied
+    -- WITHOUT the content ever entering CloakLLM. The caller hashes their
+    own bytes and passes the digest as `content_hash`; the content itself
+    never reaches the server (the no-content-in-logs invariant). In
+    compliance mode the event also satisfies Article 12 / 19
+    (article_ref=[Art_12,Art_19,Art_50]).
+
+    Args:
+        modality: text | image | audio | video.
+        synthetic: True if the output is artificially generated (default True).
+        labeled: True if a machine-readable AI-generation label was applied.
+        disclosure_method: c2pa | watermark | metadata | visible_notice | none.
+        deepfake: True for an Article 50(4) deep-fake disclosure.
+        c2pa_manifest_hash: optional hash of a downstream C2PA manifest.
+            Empty = none (forward-compat hook).
+        content_hash: optional SHA-256 of the asset, computed caller-side.
+            Empty = none. PII-safe (hash only, never the content).
+        decision_id: optional per-inference anchor. Empty = a fresh ULID.
+
+    Returns:
+        dict echoing the recorded content_context + decision_id, or
+        {"error": "..."} on validation failure (e.g. invalid modality).
+    """
+    try:
+        from cloakllm._ulid import generate_ulid
+        resolved_decision_id = decision_id or generate_ulid()
+        _shield.record_content_generation(
+            modality=modality,
+            synthetic=synthetic,
+            labeled=labeled,
+            disclosure_method=disclosure_method,
+            deepfake=deepfake,
+            c2pa_manifest_hash=c2pa_manifest_hash or None,
+            content_hash=content_hash or None,
+            decision_id=resolved_decision_id,
+        )
+        return {
+            "status": "recorded",
+            "event_type": "content_generation",
+            "decision_id": resolved_decision_id,
+            "content_context": {
+                "modality": modality,
+                "synthetic": bool(synthetic),
+                "labeled": bool(labeled),
+                "disclosure_method": disclosure_method,
+                "deepfake": bool(deepfake),
+                "c2pa_manifest_hash": c2pa_manifest_hash or None,
+                "content_hash": content_hash or None,
+            },
+        }
+    except ValueError as e:
+        # Validation errors (bad modality / disclosure_method) are safe to
+        # surface verbatim -- they carry no PII, only the allowed-value list.
+        return {"error": str(e)}
+    except Exception as e:
+        _log_tool_error("record_content_generation", e)
+        return {"error": "record_content_generation failed. Check server logs for details."}
+
+
 # ── Entry point ──────────────────────────────────────────────────
 
 if __name__ == "__main__":

@@ -130,6 +130,8 @@ jobs:
           assert callable(server.generate_compliance_report), 'generate_compliance_report missing'
           # v0.8.1: externally-verifiable key provenance
           assert callable(server.get_key_manifest), 'get_key_manifest missing'
+          # v0.10.0: Article 50 content-labeling record-keeping
+          assert callable(server.record_content_generation), 'record_content_generation missing'
           # v0.8.2: confirm cloakllm[attestation] pulled pynacl through to MCP install.
           # The whole point of v0.8.2 is that fresh pip install cloakllm-mcp lands
           # you in a state where KeyManifest works out of the box, no manual extras
@@ -142,5 +144,5 @@ jobs:
           # backend IS available (regression guard for the v0.8.2 logic).
           from cloakllm.attestation import _ed25519_backend_available
           assert _ed25519_backend_available(), 'Ed25519 backend not detected even though pynacl imported -- v0.8.2 helper broken'
-          print('install-smoke: OK -- all 12 tools + Ed25519 backend (pynacl) importable')
+          print('install-smoke: OK -- all 13 tools + Ed25519 backend (pynacl) importable')
           "
