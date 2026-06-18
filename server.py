@@ -1542,6 +1542,16 @@ def record_content_generation(
     """
     try:
         from cloakllm._ulid import generate_ulid
+        # v0.10.3 LOW (security review): content_hash / c2pa_manifest_hash are
+        # documented as PII-safe digests, but unlike model/provider they were
+        # forwarded without a PII scan -- a sub-128-char value (e.g. an email)
+        # would land in the event. Enforce hex-only so no free-form text (and
+        # therefore no PII) can pass through these fields at the MCP boundary.
+        import re as _re
+        for _name, _val in (("content_hash", content_hash),
+                            ("c2pa_manifest_hash", c2pa_manifest_hash)):
+            if _val and not _re.fullmatch(r"[0-9a-fA-F]{1,128}", _val):
+                return {"error": f"{_name} must be a hex digest (1..128 hex chars)"}
         resolved_decision_id = decision_id or generate_ulid()
         _shield.record_content_generation(
             modality=modality,

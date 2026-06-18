@@ -1396,3 +1396,19 @@ class TestRecordContentGenerationMcp:
         # at least the one unlabeled event we just wrote
         assert a50["generation_events"] >= 1
         assert rep["verdict"] == "NON_COMPLIANT"  # unlabeled -> finding
+
+    # v0.10.3 LOW (security review): content_hash / c2pa_manifest_hash must be
+    # hex digests so no free-form text (and therefore no PII) passes through.
+    def test_accepts_hex_content_hash(self):
+        r = record_content_generation(modality="image", labeled=True, content_hash="a" * 64)
+        assert r.get("status") == "recorded"
+
+    def test_rejects_non_hex_content_hash(self):
+        r = record_content_generation(modality="image", labeled=True, content_hash="john@acme.com")
+        assert "error" in r and "hex" in r["error"]
+
+    def test_rejects_non_hex_c2pa_manifest_hash(self):
+        r = record_content_generation(
+            modality="image", labeled=True, c2pa_manifest_hash="not a hash!",
+        )
+        assert "error" in r and "hex" in r["error"]

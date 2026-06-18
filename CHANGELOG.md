@@ -5,6 +5,15 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-06-18
+
+Floor bumped to `cloakllm[attestation]>=0.10.3,<0.11.0` so the `generate_compliance_report` tool picks up the v0.10.3 **compliance-report integrity fixes** (the report now actually verifies the hash chain, etc. — see cloakllm-py 0.10.3).
+
+### Fixed
+- **`record_content_generation`** now validates that `content_hash` / `c2pa_manifest_hash` are hex digests (1..128 hex chars) before forwarding. They are documented as PII-safe digests, but unlike `model`/`provider` they were not PII-scanned at the MCP boundary, so a short non-hex value (e.g. an email) could have landed in the event. Non-hex input now returns `{"error": ...}` (a security-review finding).
+
+145 → 148 tests. No tool-surface change (stays 13 tools).
+
 ## [0.10.0] - 2026-06-17
 
 Floor bumped to `cloakllm[attestation]>=0.10.0,<0.11.0`. **New `record_content_generation` tool (13th)** for EU AI Act Article 50 content-labeling record-keeping: writes a `content_generation` audit event (modality, labeled, disclosure_method, deepfake, optional caller-computed content_hash) and returns a uniform dict echoing the recorded `content_context` + `decision_id` (BUG-4 invariant). An invalid `modality`/`disclosure_method` returns `{"error": ...}` rather than raising. The content itself never reaches the server -- only a hash. Install-smoke assertion updated 12 -> 13 tools.
