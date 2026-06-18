@@ -40,44 +40,27 @@ jobs:
       # The loop polls (no-cache) for a version satisfying the pyproject
       # constraint, up to 5 minutes, then proceeds. When PyPI is already
       # consistent (the common case) the first probe passes instantly.
-      - name: Wait for cloakllm on PyPI
+      - name: Install dependencies (with PyPI-propagation retry)
         run: |
-          # grep, not tomllib -- tomllib is Python 3.11+ stdlib and this
-          # matrix includes 3.10 (the first run of this step failed there).
-          REQUIRED=$(grep -oP 'cloakllm(\[[a-z]+\])?>=\K[0-9.]+' pyproject.toml | head -1)
-          echo "pyproject requires cloakllm>=$REQUIRED"
+          # cloakllm-mcp pins cloakllm[attestation]>=X. Right after a release
+          # the new cloakllm lags on PyPI's CDN: the JSON API and even one
+          # `pip index versions` edge can show the new version while a separate
+          # `pip install` request hits a different (stale) Fastly edge seconds
+          # later and 404s it. A separate availability poll therefore can't
+          # guarantee the subsequent install succeeds (that exact race failed
+          # the v0.10.3 run: the poll saw 0.10.3, the install saw only 0.10.2).
+          # The only robust fix is to retry the REAL install -- the operation
+          # actually subject to the race -- until the CDN edges are consistent.
           for attempt in $(seq 1 20); do
-            AVAILABLE=$(pip index versions cloakllm --no-cache-dir 2>/dev/null | head -1 || true)
-            echo "attempt $attempt: $AVAILABLE"
-            if echo "$AVAILABLE" | grep -q "($REQUIRED)"; then
-              echo "PyPI has cloakllm $REQUIRED -- proceeding"
+            if pip install -e . pytest pip-audit; then
+              echo "install OK on attempt $attempt"
               exit 0
             fi
-            # Also accept any NEWER version that satisfies >= (grep the full list)
-            if pip index versions cloakllm --no-cache-dir 2>/dev/null \
-                 | python -c "
-          import sys, re
-          required = '$REQUIRED'
-          text = sys.stdin.read()
-          m = re.search(r'Available versions: (.+)', text)
-          if m:
-              from itertools import zip_longest
-              def key(v): return [int(x) for x in v.strip().split('.') if x.strip().isdigit()]
-              versions = [v.strip() for v in m.group(1).split(',')]
-              ok = any(key(v) >= key(required) for v in versions if v)
-              sys.exit(0 if ok else 1)
-          sys.exit(1)
-          "; then
-              echo "PyPI has a version >= $REQUIRED -- proceeding"
-              exit 0
-            fi
+            echo "attempt $attempt: install failed (likely PyPI CDN propagation); retry in 15s"
             sleep 15
           done
-          echo "::error::cloakllm>=$REQUIRED not on PyPI after 5 minutes"
+          echo "::error::pip install failed after 20 attempts (5 min)"
           exit 1
-
-      - name: Install dependencies
-        run: pip install -e . pytest pip-audit
 
       - name: Run tests
         run: pytest test_server.py -v
