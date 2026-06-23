@@ -5,6 +5,10 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.4] - 2026-06-23
+
+Floor bumped to `cloakllm[attestation,timestamping]>=0.11.4,<0.12.0` so a fresh MCP install pulls the v0.11.4 SECURITY fix (PII in tool-call arguments was reaching the provider unsanitized in the SDK middleware) + the non-UTF-8 console crash fix. No server.py change. Re-aligned to 0.11.4 with py/js. Tests unchanged (150).
+
 ## [0.11.3] - 2026-06-23
 
 Floor bumped to `cloakllm[attestation,timestamping]>=0.11.3,<0.12.0` so a fresh MCP install pulls the v0.11.3 NER resilience fix (a broken/absent spaCy degrades to regex-only instead of crashing sanitize). No server.py change. Re-aligned to 0.11.3 with py/js. Tests unchanged (150).
