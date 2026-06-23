@@ -61,6 +61,8 @@ from server import generate_compliance_report
 from server import get_key_manifest
 # v0.10.0 A50-5: Article 50 content-labeling record-keeping (13th tool)
 from server import record_content_generation
+# v0.11.0 TS-6: RFC 3161 trusted timestamping (14th tool)
+from server import record_chain_checkpoint
 
 # v0.6.3 review-pass: SEC-2 / SEC-4 use json for inline test fixtures.
 import json as _json
@@ -1412,3 +1414,16 @@ class TestRecordContentGenerationMcp:
             modality="image", labeled=True, c2pa_manifest_hash="not a hash!",
         )
         assert "error" in r and "hex" in r["error"]
+
+
+# v0.11.0 TS-6: MCP-level coverage of record_chain_checkpoint (14th tool).
+class TestRecordChainCheckpointMcp:
+    def test_no_tsa_returns_error_dict(self):
+        # No TSA configured (the default test server) -> uniform error dict,
+        # never a raised exception (BUG-4 invariant).
+        r = record_chain_checkpoint()
+        assert isinstance(r, dict)
+        assert "error" in r
+
+    def test_tool_is_callable(self):
+        assert callable(record_chain_checkpoint)

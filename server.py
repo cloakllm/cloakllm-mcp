@@ -1586,6 +1586,44 @@ def record_content_generation(
         return {"error": "record_content_generation failed. Check server logs for details."}
 
 
+# ── v0.11.0 TS-6: RFC 3161 trusted timestamping ──────────────────
+
+@mcp.tool()
+def record_chain_checkpoint(tsa_url: str = "") -> dict:
+    """Stamp the audit chain's latest entry_hash at an RFC 3161 Time-Stamp
+    Authority and append a chain_checkpoint event.
+
+    One checkpoint proves "every entry up to seq N existed no later than the
+    TSA's genTime" (by hash-chain induction). The TSA only ever receives the
+    entry_hash -- a hash of a no-PII entry; no content or PII leaves. The
+    server makes the (SSRF-guarded, https-only) TSA call.
+
+    Args:
+        tsa_url: the TSA endpoint. Empty -> CLOAKLLM_TSA_URL env /
+            ShieldConfig.timestamp_authority_url.
+
+    Returns:
+        dict with the checkpoint metadata (stamped_seq, stamped_entry_hash,
+        tsa_url -- never the token bytes), or {"error": "..."}.
+    """
+    try:
+        cc = _shield.checkpoint(tsa_url or None)
+        if cc is None:
+            return {"error": "No TSA configured (set tsa_url / CLOAKLLM_TSA_URL) "
+                             "or nothing to stamp (empty chain)."}
+        return {
+            "status": "recorded",
+            "event_type": "chain_checkpoint",
+            "stamped_seq": cc["stamped_seq"],
+            "stamped_entry_hash": cc["stamped_entry_hash"],
+            "tsa_url": cc["tsa_url"],
+            "hash_algorithm": cc["hash_algorithm"],
+        }
+    except Exception as e:
+        _log_tool_error("record_chain_checkpoint", e)
+        return {"error": "record_chain_checkpoint failed. Check server logs for details."}
+
+
 # ── Entry point ──────────────────────────────────────────────────
 
 if __name__ == "__main__":

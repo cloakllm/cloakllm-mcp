@@ -5,6 +5,15 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-06-22
+
+Floor bumped to `cloakllm[attestation,timestamping]>=0.11.0,<0.12.0` (pulls the RFC 3161 backend so the new tool works out of the box). Re-aligned to 0.11.0 with py/js.
+
+### Added
+- **`record_chain_checkpoint` tool (14th)** -- stamps the audit chain's latest entry_hash at an RFC 3161 Time-Stamp Authority and appends a `chain_checkpoint` event. The server makes the (SSRF-guarded, https-only) TSA call. Returns a uniform dict with the checkpoint metadata (stamped_seq, stamped_entry_hash, tsa_url) -- never the token bytes. No TSA configured / empty chain -> `{"error": ...}` (BUG-4 invariant). `CLOAKLLM_TSA_URL` env.
+
+145 -> 150 tests. Install-smoke assertion updated 13 -> 14 tools.
+
 ## [0.10.1] - 2026-06-18
 
 Floor bumped to `cloakllm[attestation]>=0.10.3,<0.11.0` so the `generate_compliance_report` tool picks up the v0.10.3 **compliance-report integrity fixes** (the report now actually verifies the hash chain, etc. — see cloakllm-py 0.10.3).
