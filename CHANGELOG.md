@@ -5,6 +5,10 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-06-23
+
+Floor bumped to `cloakllm[attestation,timestamping]>=0.11.2,<0.12.0` so a fresh MCP install pulls the v0.11.2 detection hardening (spaced credit-card / IBAN partial-leak fixes + IPv6 detection). No server.py change. Re-aligned to 0.11.2 with py/js. Tests unchanged (150).
+
 ## [0.11.1] - 2026-06-23
 
 Floor bumped to `cloakllm[attestation,timestamping]>=0.11.1,<0.12.0` so a fresh MCP install pulls the v0.11.1 timestamping crypto hardening (the required ESS `SigningCertificateV2` check + the OpenSSL-differential-verified verifier). No server.py change. Re-aligned to 0.11.1 with py/js. Tests unchanged (150).
