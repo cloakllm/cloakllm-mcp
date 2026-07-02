@@ -5,6 +5,10 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-07-01
+
+Floor bumped to `cloakllm[attestation,timestamping,detection]>=0.12.0,<0.13.0` (floor **and** cap moved together — a `<next-minor` cap must track the floor or it blocks its own version). **Added `detection` to the extras:** as of cloakllm 0.12.0 spaCy is no longer a core SDK dependency (it moved to the `[detection]` extra), so without this pin a fresh `pip install cloakllm-mcp` would silently lose NER (PERSON/ORG/GPE) and degrade to regex-only. Pinning `[detection]` preserves the MCP server's full-detection behavior. Also pulls the SDK's v0.12.0 compliance-report `coverage` block (schema 1.1) through `generate_compliance_report`. No server.py change. Re-aligned to 0.12.0 with py/js. Tests unchanged (150).
+
 ## [0.11.5] - 2026-06-23
 
 Floor bumped to `cloakllm[attestation,timestamping]>=0.11.5,<0.12.0`. No server.py change; pulls the SDK StreamDesanitizer fidelity fix. Re-aligned to 0.11.5 with py/js. Tests unchanged (150).
