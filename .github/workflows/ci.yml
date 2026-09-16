@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -22,10 +22,10 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -75,11 +75,11 @@ jobs:
 
       # v0.6.5: Build the wheel and import it from a fresh venv against the
       # REAL upstream `mcp[cli]` package. This catches the class of regression
-      # that broke v0.6.4 — when upstream `mcp` renamed
-      # `FastMCP(description=...)` → `instructions=`, our `test_server.py`
+      # that broke v0.6.4 ג€” when upstream `mcp` renamed
+      # `FastMCP(description=...)` ג†’ `instructions=`, our `test_server.py`
       # mock (`_FakeFastMCP` accepting `**kwargs`) silently swallowed the
       # change and CI stayed green. Every fresh install of cloakllm-mcp 0.6.4
-      # then crashed at import — required a 0.6.4.post1 hotfix.
+      # then crashed at import ג€” required a 0.6.4.post1 hotfix.
       #
       # This step builds the wheel, installs it into a clean venv WITHOUT
       # any test mocks, and runs `import server`. If the upstream API drifts
