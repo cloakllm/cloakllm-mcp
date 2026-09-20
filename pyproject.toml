@@ -1,6 +1,6 @@
 [project]
 name = "cloakllm-mcp"
-version = "0.12.2"
+version = "0.12.3"
 description = "MCP server for CloakLLM — PII cloaking tools for Claude Desktop"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,7 +25,7 @@ dependencies = [
     # (moved to the [detection] extra). MCP is an end-user PII tool -- without
     # this, `pip install cloakllm-mcp` would silently lose NER (PERSON/ORG/GPE)
     # and degrade to regex-only. Pin it to preserve full detection behavior.
-    "cloakllm[attestation,timestamping,detection]>=0.12.2,<0.13.0",
+    "cloakllm[attestation,timestamping,detection]>=0.12.3,<0.13.0",
     "mcp[cli]>=1.0.0,<2.0.0",
 ]
 

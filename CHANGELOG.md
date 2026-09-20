@@ -5,6 +5,10 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3] - 2026-09-20
+
+Floor bumped to `cloakllm[attestation,timestamping,detection]>=0.12.3,<0.13.0` to pull the SDK's v0.12.3 **security fix**: credit-card detection was missing entire issuer ranges -- Luhn-valid Mastercard 2-series (issued since 2017), JCB and UnionPay (the largest network in the world by volume) were not detected at all, and on their normal spaced forms the digits partially leaked into the audit log. Also pulls the new Luhn checksum (a card-shaped number with a broken check digit is no longer reported as a card) and a CPU-time ReDoS safety check, which previously measured wall clock and could silently disable a detection category on a busy machine. No `server.py` change; 14 tools unchanged. Re-aligned to 0.12.3 with py/js. Tests unchanged (150).
+
 ## [0.12.2] - 2026-09-17
 
 Floor bumped to `cloakllm[attestation,timestamping,detection]>=0.12.2,<0.13.0` to pull the SDK's v0.12.2 fixes: Python-written audit chains now verify in the JavaScript SDK (whole-valued floats previously serialised as `0.0` in Python and `0` in JS, so a genuine chain read as tampered across SDKs), the `cryptography` floor moves past PYSEC-2026-3552 (the old `<50.0.0` cap blocked its own fix), and Article 50 accepts `audible_notice` and `other` as `disclosure_method`. No `server.py` change; 14 tools unchanged. CI pins every GitHub Action to a commit SHA and adds Python 3.13/3.14 to the matrix. Re-aligned to 0.12.2 with py/js. Tests unchanged (150).
