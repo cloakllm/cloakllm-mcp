@@ -5,6 +5,21 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.6] - 2026-09-20
+
+Patch release. No change to `server.py` or to any of the 14 tools; this bump exists to track the SDK and to raise the dependency floor.
+
+Re-aligns the three packages on one version number: v0.12.5 went to npm alone because the crash it fixed was JavaScript-only, so this package moves 0.12.4 -> 0.12.6 and there is no 0.12.5 for it.
+
+### Changed
+- Requires `cloakllm[attestation,timestamping,detection]>=0.12.6` to pick up the detection-precedence fix: a NER guess could outrank a category the caller defined via `custom_llm_categories`, so a value asked for as `PATIENT_ID` came back tokenised as `PERSON`. Nothing leaked -- the value was still tokenised -- but the category was wrong, which matters for any consumer keyed on it. See the SDK changelog.
+
+### Fixed
+- The PyPI package description carried a real em dash. Now plain ASCII, so `pip show` cannot fail on a non-UTF-8 Windows console.
+
+### Unchanged and re-verified
+150 tests passing. bandit clean on `server.py` at `-ll`, 0 HIGH and 0 MEDIUM.
+
 ## [0.12.4] - 2026-09-20
 
 Floor bumped to `cloakllm[attestation,timestamping,detection]>=0.12.4,<0.13.0` to pull the SDK's v0.12.4 detection fixes: **contiguous phone numbers were not detected at all** (including every bare US 10-digit number), now covered by ungated E.164 plus keyword-gated NANP-shaped runs -- measured at 6/6 recall and 0/12 false positives, because a bare-digit-run pattern would have lit up half an ordinary developer's chat window. Also pulls the **fail-closed safety guard**: a built-in pattern that fails the ReDoS check now raises rather than being skipped, which previously left the process running with that category's detection silently switched off. No `server.py` change; 14 tools unchanged. Re-aligned to 0.12.4 with py/js. Tests unchanged (150).

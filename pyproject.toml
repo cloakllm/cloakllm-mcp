@@ -1,7 +1,7 @@
 [project]
 name = "cloakllm-mcp"
-version = "0.12.4"
-description = "MCP server for CloakLLM — PII cloaking tools for Claude Desktop"
+version = "0.12.6"
+description = "MCP server for CloakLLM -- PII cloaking tools for Claude Desktop"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -10,7 +10,7 @@ keywords = ["llm", "pii", "mcp", "claude", "privacy", "compliance"]
 dependencies = [
     # v0.6.1 H6: cap upper to prevent unintended major-version pickup.
     # v0.6.2 (I1 hotfix): bump floor to ensure I1 fix is present.
-    # v0.6.3: bump floor — v0.6.2 is missing the entire round of security
+    # v0.6.3: bump floor -- v0.6.2 is missing the entire round of security
     # hardening (SSRF redirect bypass close, sanitized_hash oracle close,
     # streaming case-variant warning, MCP model/provider PII scan, audit
     # chain integrity typed exception, audit file 0o600 perms, etc.). MCP
@@ -25,7 +25,7 @@ dependencies = [
     # (moved to the [detection] extra). MCP is an end-user PII tool -- without
     # this, `pip install cloakllm-mcp` would silently lose NER (PERSON/ORG/GPE)
     # and degrade to regex-only. Pin it to preserve full detection behavior.
-    "cloakllm[attestation,timestamping,detection]>=0.12.4,<0.13.0",
+    "cloakllm[attestation,timestamping,detection]>=0.12.6,<0.13.0",
     "mcp[cli]>=1.0.0,<2.0.0",
 ]
 
