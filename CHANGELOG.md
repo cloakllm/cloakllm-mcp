@@ -5,6 +5,10 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.4] - 2026-09-20
+
+Floor bumped to `cloakllm[attestation,timestamping,detection]>=0.12.4,<0.13.0` to pull the SDK's v0.12.4 detection fixes: **contiguous phone numbers were not detected at all** (including every bare US 10-digit number), now covered by ungated E.164 plus keyword-gated NANP-shaped runs -- measured at 6/6 recall and 0/12 false positives, because a bare-digit-run pattern would have lit up half an ordinary developer's chat window. Also pulls the **fail-closed safety guard**: a built-in pattern that fails the ReDoS check now raises rather than being skipped, which previously left the process running with that category's detection silently switched off. No `server.py` change; 14 tools unchanged. Re-aligned to 0.12.4 with py/js. Tests unchanged (150).
+
 ## [0.12.3] - 2026-09-20
 
 Floor bumped to `cloakllm[attestation,timestamping,detection]>=0.12.3,<0.13.0` to pull the SDK's v0.12.3 **security fix**: credit-card detection was missing entire issuer ranges -- Luhn-valid Mastercard 2-series (issued since 2017), JCB and UnionPay (the largest network in the world by volume) were not detected at all, and on their normal spaced forms the digits partially leaked into the audit log. Also pulls the new Luhn checksum (a card-shaped number with a broken check digit is no longer reported as a card) and a CPU-time ReDoS safety check, which previously measured wall clock and could silently disable a detection category on a busy machine. No `server.py` change; 14 tools unchanged. Re-aligned to 0.12.3 with py/js. Tests unchanged (150).
