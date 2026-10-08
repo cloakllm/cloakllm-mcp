@@ -5,6 +5,13 @@ All notable changes to CloakLLM MCP Server will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioned per [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.7] - 2026-10-08
+
+Patch release. No change to `server.py` or to any of the 14 tools.
+
+### Changed
+- Requires `cloakllm[attestation,timestamping,detection]>=0.12.7` to pick up the SDK's detection fixes from [cloakllm/CloakLLM#10](https://github.com/cloakllm/CloakLLM/issues/10). Parts of ordinary decimal numbers were detected as personal data: 1,152 of 6,016 random decimals came back as SSN, PHONE or CREDIT_CARD tokens on the default config, and 11,139 of 6,000 with a locale set, so numeric data reached the model corrupted. Both are now 0. Separately, a name's closing quote could be swallowed into its token, and a MongoDB ObjectId could be tagged as a place. See the SDK changelog, including its "Behaviour change on upgrade" section.
+
 ## [0.12.6] - 2026-09-20
 
 Patch release. No change to `server.py` or to any of the 14 tools; this bump exists to track the SDK and to raise the dependency floor.
